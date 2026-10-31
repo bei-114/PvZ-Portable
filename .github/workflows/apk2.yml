@@ -11,9 +11,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply patch
         run: |
-          base64 -d .github/workflows/pvzp-mod.patch.xz.b64 | xz -d > /tmp/p.patch
-          git apply /tmp/p.patch
-          ls src/PvzpLib/PvzpMod.cpp
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
