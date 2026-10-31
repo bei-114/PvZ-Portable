@@ -5746,13 +5746,15 @@ void Board::Update()
 			if (aP->mDead || aP->mSeedType != SeedType::SEED_ELECTRIC_GATLINGPEA)
 				continue;
 			int aHits = 0;
+			int aPlantX = GridToPixelX(aP->mPlantCol, aP->mRow) + 40;
 			for (Zombie* aZ : mZombies)
 			{
 				if (!aZ || aZ->mDead)
 					continue;
-				if (aZ->mRow < aP->mRow - 1 || aZ->mRow > aP->mRow + 1)
+				// 跨行电链：上下两排内、前方 320 像素
+				if (aZ->mPosX < aPlantX - 40 || aZ->mPosX > aPlantX + 320)
 					continue;
-				if (aZ->mPosX < GridToPixelX(aP->mPlantCol, aP->mRow) - 40)
+				if (aZ->mRow < aP->mRow - 2 || aZ->mRow > aP->mRow + 2)
 					continue;
 				aZ->mBodyHealth -= 40;
 				aZ->mChilledCounter = 100;
