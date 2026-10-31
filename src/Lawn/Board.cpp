@@ -7545,9 +7545,9 @@ void Board::DrawDbgPanel(Graphics* g)
 		return;
 
 	g->SetColor(Sexy::Color(20, 20, 30, 220));
-	g->FillRect(440, 26, 228, 228);
-	const char* aLabels[6] = {"SUN +1000", "SUN MAX", "KILL ALL", "SLOW ALL", "PLANT E-GATL", "NEXT WAVE"};
-	for (int i = 0; i < 6; i++)
+	g->FillRect(440, 26, 228, 302);
+	const char* aLabels[8] = {"SUN +1000", "SUN MAX", "KILL ALL", "SLOW ALL", "PLANT E-GATL", "NEXT WAVE", "NEXT LVL", "UNLOCK ALL"};
+	for (int i = 0; i < 8; i++)
 	{
 		int aY = 30 + i * 37;
 		g->SetColor(Sexy::Color(45, 45, 70, 235));
@@ -7577,7 +7577,7 @@ bool Board::DbgMouseDown(int x, int y)
 	if (!mDbgOpen || x < 444 || x > 664)
 		return false;
 
-	for (int i = 0; i < 6; i++)
+	for (int i = 0; i < 8; i++)
 	{
 		int aY = 30 + i * 37;
 		if (y < aY || y > aY + 32)
@@ -7612,6 +7612,15 @@ bool Board::DbgMouseDown(int x, int y)
 			mZombieCountDown = 1;
 			if (mHugeWaveCountDown > 0)
 				mHugeWaveCountDown = 1;
+			break;
+		case 6:
+			if (mApp->mPlayerInfo)
+				mApp->mPlayerInfo->SetLevel(mLevel + 1);
+			mApp->StartPlaying();
+			break;
+		case 7:
+			if (mApp->mPlayerInfo)
+				mApp->mPlayerInfo->SetLevel(50);
 			break;
 		}
 		return true;
