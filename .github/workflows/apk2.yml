@@ -1,0 +1,54 @@
+name: Build APK (PvzpMod)
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_API: "24"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patch
+        run: |
+          base64 -d .github/workflows/pvzp-mod.patch.xz.b64 | xz -d > /tmp/p.patch
+          git apply /tmp/p.patch
+          ls src/PvzpLib/PvzpMod.cpp
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+      - name: NDK
+        run: |
+          if [ -d "$ANDROID_NDK_LATEST_HOME" ]; then echo "ANDROID_NDK=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV; else yes | sdkmanager --install "ndk;27.1.12297006" >/dev/null; echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.1.12297006" >> $GITHUB_ENV; fi
+      - name: SDL2
+        run: |
+          wget -q https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.tar.gz
+          tar xf SDL2-2.32.10.tar.gz && mv SDL2-2.32.10 sdl2-src
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: vcpkg.json
+      - name: Build SDL2
+        run: |
+          cmake -B b1 -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-$ANDROID_API -DSDL_SHARED=ON -DSDL_STATIC=OFF -DCMAKE_INSTALL_PREFIX=$PWD/sdl2out -DCMAKE_BUILD_TYPE=Release sdl2-src
+          cmake --build b1 -j$(nproc) && cmake --install b1
+      - name: Build native
+        run: |
+          cmake -B b2 -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=arm64-android -DVCPKG_CMAKE_SYSTEM_VERSION=$ANDROID_API -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-$ANDROID_API -DSDL2_DIR=$PWD/sdl2out/lib/cmake/SDL2 -DCMAKE_BUILD_TYPE=Release
+          cmake --build b2 -j$(nproc)
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          cp -L b2/libmain.so android/app/src/main/jniLibs/arm64-v8a/
+          cp -L sdl2out/lib/libSDL2*.so android/app/src/main/jniLibs/arm64-v8a/
+          cp -L b2/vcpkg_installed/arm64-android/lib/*.so android/app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || true
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+      - name: APK
+        run: |
+          cd android && echo "sdk.dir=$ANDROID_HOME" > local.properties && gradle wrapper && ./gradlew assembleRelease -PusePrebuiltLibs=true --no-daemon
+      - run: mkdir -p dist && find android -name "*.apk" -path "*/release/*" -exec cp {} dist/apk.apk \;
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pvz-mod-apk
+          path: dist/
