@@ -7497,6 +7497,17 @@ void Board::DrawDbgPanel(Graphics* g)
 
 bool Board::DbgMouseDown(int x, int y)
 {
+	if (mDbgPlantPending)
+	{
+		int aCol = PixelToGridX(x, y);
+		int aRow = PixelToGridY(x, y);
+		if (aCol >= 0 && aCol < 9 && aRow >= 0 && aRow < 5)
+		{
+			AddPlant(aCol, aRow, SeedType::SEED_ELECTRIC_GATLINGPEA);
+			mDbgPlantPending = false;
+			return true;
+		}
+	}
 	if (x >= 600 && x <= 676 && y >= 2 && y <= 24)
 	{
 		mDbgOpen = !mDbgOpen;
@@ -7523,7 +7534,8 @@ bool Board::DbgMouseDown(int x, int y)
 			}
 			break;
 		case 2:
-			AddPlant(3, 2, SeedType::SEED_ELECTRIC_GATLINGPEA);
+			mDbgPlantPending = true;
+			mDbgOpen = false;
 			break;
 		case 3:
 			mZombieCountDown = 1;

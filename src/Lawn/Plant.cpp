@@ -100,7 +100,7 @@ constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
 	{ .mSeedType = SeedType::SEED_GIANT_WALLNUT,     .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT,       .mPacketIndex = 2,  .mSeedCost = 0,   .mRefreshTime = 3000,   .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "GIANT_WALLNUT" },
 	{ .mSeedType = SeedType::SEED_SPROUT,            .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_ZENGARDEN_SPROUT, .mPacketIndex = 33, .mSeedCost = 0,   .mRefreshTime = 3000,   .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "SPROUT" },
 	{ .mSeedType = SeedType::SEED_LEFTPEATER,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_REPEATER,      .mPacketIndex = 5,  .mSeedCost = 200, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 150,  .mPlantName = "REPEATER" },
-	{ .mSeedType = SeedType::SEED_ELECTRIC_GATLINGPEA, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_GATLINGPEA, .mPacketIndex = 5, .mSeedCost = 300, .mRefreshTime = 5000, .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 120, .mPlantName = "ELECTRIC_GATLING_PEA" }
+	{ .mSeedType = SeedType::SEED_ELECTRIC_GATLINGPEA, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_GATLINGPEA, .mPacketIndex = 5, .mSeedCost = 300, .mRefreshTime = 5000, .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 45, .mPlantName = "ELECTRIC_GATLING_PEA" }
 };
 
 Plant::Plant()
