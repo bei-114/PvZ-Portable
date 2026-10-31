@@ -292,6 +292,7 @@ public:
 	bool							DbgMouseDown(int x, int y);
 	bool							mDbgOpen = false;
 	bool							mDbgPlantPending = false;
+	int								mEguTimer = 0;
 	void							DrawBackdrop(Graphics* g);
 	void							ButtonPress  	(int) override{}
 	void							ButtonDepress	(int) override{}

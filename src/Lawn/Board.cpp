@@ -4367,6 +4367,34 @@ void Board::PickUpTool(GameObjectType theObjectType)
 void Board::MouseDown(int x, int y, int theClickCount)
 {
 	UpdateMousePosition();
+	// 点击电能机枪豌豆：扇形大招
+	for (Plant* aP : mPlants)
+	{
+		if (aP->mDead || aP->mSeedType != SeedType::SEED_ELECTRIC_GATLINGPEA)
+			continue;
+		int aPx = GridToPixelX(aP->mPlantCol, aP->mRow) + 40;
+		int aPy = GridToPixelY(aP->mPlantCol, aP->mRow) + 40;
+		if (x >= aPx - 40 && x <= aPx + 40 && y >= aPy - 50 && y <= aPy + 30)
+		{
+			int aHits = 0;
+			for (Zombie* aZ : mZombies)
+			{
+				if (!aZ || aZ->mDead)
+					continue;
+				if (aZ->mRow < aP->mRow - 1 || aZ->mRow > aP->mRow + 1)
+					continue;
+				if (aZ->mPosX < aPx - 60 || aZ->mPosX > aPx + 340)
+					continue;
+				aZ->mBodyHealth -= 100;
+				aZ->mChilledCounter = 200;
+				if (aZ->mBodyHealth <= 0)
+					aZ->DieWithLoot();
+				if (++aHits >= 8)
+					break;
+			}
+			return;
+		}
+	}
 	if (DbgMouseDown(x, y))
 		return;
 	Widget::MouseDown(x, y, theClickCount);
@@ -5704,6 +5732,36 @@ void Board::Update()
 	MarkDirty();
 
 	mBoardUpdateCounter++;
+
+	// 电能机枪豌豆：周期性电链（同排与上下各一排，最多 3 只）
+	if (mEguTimer > 0)
+		mEguTimer--;
+	else
+	{
+		mEguTimer = 120;
+		for (Plant* aP : mPlants)
+		{
+			if (aP->mDead || aP->mSeedType != SeedType::SEED_ELECTRIC_GATLINGPEA)
+				continue;
+			int aHits = 0;
+			for (Zombie* aZ : mZombies)
+			{
+				if (!aZ || aZ->mDead)
+					continue;
+				if (aZ->mRow < aP->mRow - 1 || aZ->mRow > aP->mRow + 1)
+					continue;
+				if (aZ->mPosX < GridToPixelX(aP->mPlantCol, aP->mRow) - 40)
+					continue;
+				aZ->mBodyHealth -= 40;
+				aZ->mChilledCounter = 100;
+				if (aZ->mBodyHealth <= 0)
+					aZ->DieWithLoot();
+				if (++aHits >= 3)
+					break;
+			}
+		}
+	}
+
 	mCutScene->Update();
 	UpdateMousePosition();
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
