@@ -288,6 +288,9 @@ public:
 	void							Update() override;
 	void							UpdateLayers();
 	void							Draw(Graphics* g) override;
+	void							DrawDbgPanel(Graphics* g);
+	bool							DbgMouseDown(int x, int y);
+	bool							mDbgOpen = false;
 	void							DrawBackdrop(Graphics* g);
 	void							ButtonPress  	(int) override{}
 	void							ButtonDepress	(int) override{}

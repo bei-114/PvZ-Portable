@@ -37,6 +37,7 @@
 #include "../PvzpLib/Trail.h"
 #include "Widget/ChallengeScreen.h"
 #include "../PvzpLib/PvzpDebug.h"
+#include "../PvzpLib/PvzpMod.h"
 #include "../PvzpLib/PvzpFoley.h"
 #include "Widget/SeedChooserScreen.h"
 #include "../PvzpLib/Attachment.h"
@@ -1357,6 +1358,9 @@ void Board::InitLevel()
 	{
 		mSunMoney = 50;
 	}
+
+	// PvzpMod：初始阳光可被模组覆盖（所有模式生效，改小游戏数值时慎用）
+	mSunMoney = PvzpMod::GlobalInt("startingSun", mSunMoney);
 
 	memset(mRowPickingArray, 0, sizeof(mRowPickingArray));
 	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
@@ -4363,6 +4367,8 @@ void Board::PickUpTool(GameObjectType theObjectType)
 void Board::MouseDown(int x, int y, int theClickCount)
 {
 	UpdateMousePosition();
+	if (DbgMouseDown(x, y))
+		return;
 	Widget::MouseDown(x, y, theClickCount);
 	mIgnoreMouseUp = !CanInteractWithBoardButtons();
 	if (mTimeStopCounter > 0)
@@ -7465,6 +7471,69 @@ void Board::Draw(Graphics* g)
 
 	mDrawCount++;
 	DrawGameObjects(g);
+	DrawDbgPanel(g);
+}
+
+
+void Board::DrawDbgPanel(Graphics* g)
+{
+	g->SetColor(Sexy::Color(20, 20, 30, 200));
+	g->FillRect(600, 2, 76, 22);
+	PvzpDrawString(g, "DBG", 638, 4, Sexy::FONT_DWARVENTODCRAFT12, Sexy::Color(255, 230, 120), DrawStringJustification::DS_ALIGN_CENTER);
+	if (!mDbgOpen)
+		return;
+
+	g->SetColor(Sexy::Color(20, 20, 30, 220));
+	g->FillRect(440, 26, 228, 158);
+	const char* aLabels[4] = {"SUN +1000", "KILL ALL", "PLANT E-GATL", "NEXT WAVE"};
+	for (int i = 0; i < 4; i++)
+	{
+		int aY = 30 + i * 37;
+		g->SetColor(Sexy::Color(45, 45, 70, 235));
+		g->FillRect(444, aY, 220, 32);
+		PvzpDrawString(g, aLabels[i], 554, aY + 9, Sexy::FONT_DWARVENTODCRAFT12, Sexy::Color(255, 230, 120), DrawStringJustification::DS_ALIGN_CENTER);
+	}
+}
+
+bool Board::DbgMouseDown(int x, int y)
+{
+	if (x >= 600 && x <= 676 && y >= 2 && y <= 24)
+	{
+		mDbgOpen = !mDbgOpen;
+		return true;
+	}
+	if (!mDbgOpen || x < 444 || x > 664)
+		return false;
+
+	for (int i = 0; i < 4; i++)
+	{
+		int aY = 30 + i * 37;
+		if (y < aY || y > aY + 32)
+			continue;
+		switch (i)
+		{
+		case 0:
+			AddSunMoney(1000);
+			break;
+		case 1:
+			for (Zombie* aZombie : mZombies)
+			{
+				if (aZombie && !aZombie->mDead)
+					aZombie->DieWithLoot();
+			}
+			break;
+		case 2:
+			AddPlant(3, 2, SeedType::SEED_ELECTRIC_GATLINGPEA);
+			break;
+		case 3:
+			mZombieCountDown = 1;
+			if (mHugeWaveCountDown > 0)
+				mHugeWaveCountDown = 1;
+			break;
+		}
+		return true;
+	}
+	return false;
 }
 
 void Board::SetMustacheMode(bool theEnableMustache)

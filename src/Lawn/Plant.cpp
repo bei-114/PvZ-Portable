@@ -30,6 +30,7 @@
 #include "Projectile.h"
 #include "SeedPacket.h"
 #include "../LawnApp.h"
+#include "PvzpLib/PvzpMod.h"
 #include "CursorObject.h"
 #include "../GameConstants.h"
 #include "System/PlayerInfo.h"
@@ -98,7 +99,8 @@ constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
 	{ .mSeedType = SeedType::SEED_EXPLODE_O_NUT,     .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT,       .mPacketIndex = 2,  .mSeedCost = 0,   .mRefreshTime = 3000,   .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "EXPLODE_O_NUT" },
 	{ .mSeedType = SeedType::SEED_GIANT_WALLNUT,     .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT,       .mPacketIndex = 2,  .mSeedCost = 0,   .mRefreshTime = 3000,   .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "GIANT_WALLNUT" },
 	{ .mSeedType = SeedType::SEED_SPROUT,            .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_ZENGARDEN_SPROUT, .mPacketIndex = 33, .mSeedCost = 0,   .mRefreshTime = 3000,   .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "SPROUT" },
-	{ .mSeedType = SeedType::SEED_LEFTPEATER,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_REPEATER,      .mPacketIndex = 5,  .mSeedCost = 200, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 150,  .mPlantName = "REPEATER" }
+	{ .mSeedType = SeedType::SEED_LEFTPEATER,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_REPEATER,      .mPacketIndex = 5,  .mSeedCost = 200, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 150,  .mPlantName = "REPEATER" },
+	{ .mSeedType = SeedType::SEED_ELECTRIC_GATLINGPEA, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_GATLINGPEA, .mPacketIndex = 5, .mSeedCost = 300, .mRefreshTime = 5000, .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 120, .mPlantName = "ELECTRIC_GATLING_PEA" }
 };
 
 Plant::Plant()
@@ -489,6 +491,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	{
 		mPlantHealth *= 2;
 	}
+	mPlantHealth = PvzpMod::PlantInt(GetPlantDefinition(theSeedType).mPlantName, "health", mPlantHealth);
 	mPlantMaxHealth = mPlantHealth;
 
 	if (mSeedType != SeedType::SEED_FLOWERPOT && IsOnBoard())
@@ -761,7 +764,7 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 			aHeadReanim->mAnimRate = 45.0f;
 			mShootingCounter = 26;
 		}
-		else if (mSeedType == SeedType::SEED_GATLINGPEA)
+		else if (mSeedType == SeedType::SEED_GATLINGPEA || mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
 		{
 			aHeadReanim->mAnimRate = 38.0f;
 			mShootingCounter = 100;
@@ -4965,10 +4968,26 @@ void Plant::Die()
 
 const PlantDefinition& GetPlantDefinition(SeedType theSeedType)
 {
-	PVZP_ASSERT(gPlantDefs[theSeedType].mSeedType == theSeedType);
 	PVZP_ASSERT(theSeedType >= 0 && theSeedType < static_cast<int>(SeedType::NUM_SEED_TYPES));
 
-	return gPlantDefs[theSeedType];
+	// PvzpMod：首次访问时复制一份原版表，套用模组覆盖值
+	static PlantDefinition aModdedDefs[static_cast<int>(SeedType::NUM_SEED_TYPES)];
+	static bool aModsApplied = false;
+	if (!aModsApplied)
+	{
+		aModsApplied = true;
+		for (int i = 0; i < static_cast<int>(SeedType::NUM_SEED_TYPES); i++)
+		{
+			aModdedDefs[i] = gPlantDefs[i];
+			const char* aName = aModdedDefs[i].mPlantName;
+			aModdedDefs[i].mSeedCost = PvzpMod::PlantInt(aName, "cost", aModdedDefs[i].mSeedCost);
+			aModdedDefs[i].mRefreshTime = PvzpMod::PlantInt(aName, "refresh", aModdedDefs[i].mRefreshTime);
+			aModdedDefs[i].mLaunchRate = PvzpMod::PlantInt(aName, "launchRate", aModdedDefs[i].mLaunchRate);
+		}
+	}
+
+	PVZP_ASSERT(aModdedDefs[theSeedType].mSeedType == theSeedType);
+	return aModdedDefs[theSeedType];
 }
 
 int Plant::GetCost(SeedType theSeedType, SeedType theImitaterType)
