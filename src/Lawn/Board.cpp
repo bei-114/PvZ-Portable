@@ -5760,8 +5760,7 @@ void Board::Update()
 				aZ->mChilledCounter = 100;
 				if (aZ->mBodyHealth <= 0)
 					aZ->DieWithLoot();
-				if (++aHits >= 3)
-					break;
+				aHits++;
 			}
 		}
 	}
@@ -7546,9 +7545,9 @@ void Board::DrawDbgPanel(Graphics* g)
 		return;
 
 	g->SetColor(Sexy::Color(20, 20, 30, 220));
-	g->FillRect(440, 26, 228, 158);
-	const char* aLabels[4] = {"SUN +1000", "KILL ALL", "PLANT E-GATL", "NEXT WAVE"};
-	for (int i = 0; i < 4; i++)
+	g->FillRect(440, 26, 228, 228);
+	const char* aLabels[6] = {"SUN +1000", "SUN MAX", "KILL ALL", "SLOW ALL", "PLANT E-GATL", "NEXT WAVE"};
+	for (int i = 0; i < 6; i++)
 	{
 		int aY = 30 + i * 37;
 		g->SetColor(Sexy::Color(45, 45, 70, 235));
@@ -7578,7 +7577,7 @@ bool Board::DbgMouseDown(int x, int y)
 	if (!mDbgOpen || x < 444 || x > 664)
 		return false;
 
-	for (int i = 0; i < 4; i++)
+	for (int i = 0; i < 6; i++)
 	{
 		int aY = 30 + i * 37;
 		if (y < aY || y > aY + 32)
@@ -7589,17 +7588,27 @@ bool Board::DbgMouseDown(int x, int y)
 			AddSunMoney(1000);
 			break;
 		case 1:
+			AddSunMoney(9990);
+			break;
+		case 2:
 			for (Zombie* aZombie : mZombies)
 			{
 				if (aZombie && !aZombie->mDead)
 					aZombie->DieWithLoot();
 			}
 			break;
-		case 2:
+		case 3:
+			for (Zombie* aZombie : mZombies)
+			{
+				if (aZombie && !aZombie->mDead)
+					aZombie->mChilledCounter = 300;
+			}
+			break;
+		case 4:
 			mDbgPlantPending = true;
 			mDbgOpen = false;
 			break;
-		case 3:
+		case 5:
 			mZombieCountDown = 1;
 			if (mHugeWaveCountDown > 0)
 				mHugeWaveCountDown = 1;
