@@ -223,6 +223,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	case SeedType::SEED_REPEATER:
 	case SeedType::SEED_LEFTPEATER:
 	case SeedType::SEED_GATLINGPEA:
+	case SeedType::SEED_ELECTRIC_GATLINGPEA:
 		if (aBodyReanim)
 		{
 			aBodyReanim->mAnimRate = RandRangeFloat(15.0f, 20.0f);
@@ -2964,7 +2965,7 @@ Reanimation* Plant::AttachBlinkAnim(Reanimation* theReanimBody)
 			aTrackToAttach = "anim_face2";
 		}
 	}
-	else if (mSeedType == SeedType::SEED_PEASHOOTER || mSeedType == SeedType::SEED_SNOWPEA || mSeedType == SeedType::SEED_REPEATER || mSeedType == SeedType::SEED_LEFTPEATER || mSeedType == SeedType::SEED_GATLINGPEA)
+	else if (mSeedType == SeedType::SEED_PEASHOOTER || mSeedType == SeedType::SEED_SNOWPEA || mSeedType == SeedType::SEED_REPEATER || mSeedType == SeedType::SEED_LEFTPEATER || mSeedType == SeedType::SEED_GATLINGPEA || mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
 	{
 		if (theReanimBody->TrackExists("anim_stem"))
 		{

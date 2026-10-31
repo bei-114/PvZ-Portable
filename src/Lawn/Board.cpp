@@ -4370,6 +4370,8 @@ void Board::MouseDown(int x, int y, int theClickCount)
 	// 点击电能机枪豌豆：扇形大招
 	for (Plant* aP : mPlants)
 	{
+		if (mCursorObject && mCursorObject->mCursorType == CursorType::CURSOR_TYPE_SHOVEL)
+			break;
 		if (aP->mDead || aP->mSeedType != SeedType::SEED_ELECTRIC_GATLINGPEA)
 			continue;
 		int aPx = GridToPixelX(aP->mPlantCol, aP->mRow) + 40;
