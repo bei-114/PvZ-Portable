@@ -9,8 +9,6 @@ jobs:
       ANDROID_API: "24"
     steps:
       - uses: actions/checkout@v4
-      - name: Apply patch
-        run: |
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
