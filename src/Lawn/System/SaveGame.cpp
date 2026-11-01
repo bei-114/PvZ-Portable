@@ -39,6 +39,7 @@
 #include "../../PvzpLib/DataArray.h"
 #include "../../PvzpLib/PvzpList.h"
 #include "../../PvzpLib/PvzpModUI.h"
+#include "../../PvzpLib/PvzpMod.h"
 #include "../../PvzpLib/PvzpPlantFood.h"
 #include "DataSync.h"
 #include "misc/Buffer.h"
@@ -93,7 +94,8 @@ enum SaveChunkTypeV4
 	SAVE4_CHUNK_SEEDPACKETS = 18,
 	SAVE4_CHUNK_CHALLENGE = 19,
 	SAVE4_CHUNK_MUSIC = 20,
-	SAVE4_CHUNK_MOD_GAMEPLAY = 0x4D4F4401
+	SAVE4_CHUNK_MOD_GAMEPLAY = 0x4D4F4401,
+	SAVE4_CHUNK_MOD_RULES = 0x4D4F4402
 };
 
 static constexpr const uint32_t SAVE4_CHUNK_VERSION = 1U;
@@ -1981,6 +1983,15 @@ static void SyncBoardPortable(PortableSaveContext& theContext, Board* theBoard)
 }
 
 
+static void SyncModRules(PortableSaveContext& c, Board*)
+{
+	uint64_t fingerprint=PvzpMod::RulesFingerprint();
+	uint32_t low=static_cast<uint32_t>(fingerprint);
+	uint32_t high=static_cast<uint32_t>(fingerprint>>32);
+	c.SyncUInt32(low);c.SyncUInt32(high);
+	if(c.mReading&&!c.mFailed) PvzpMod::WarnSavedRules((uint64_t(high)<<32)|low);
+}
+
 static void SyncModGameplay(PortableSaveContext& c, Board* board)
 {
 	std::vector<uint8_t> bytes;
@@ -2048,6 +2059,8 @@ static ChunkSyncFn GetChunkSyncFn(uint32_t theChunkType)
 		return SyncMusicPortable;
 	case SAVE4_CHUNK_MOD_GAMEPLAY:
 		return SyncModGameplay;
+	case SAVE4_CHUNK_MOD_RULES:
+		return SyncModRules;
 	default:
 		return nullptr;
 	}
@@ -2873,6 +2886,7 @@ bool LawnSaveGame(Board* theBoard, const std::string& theFilePath)
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_CHALLENGE, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_MUSIC, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_MOD_GAMEPLAY, theBoard)) return false;
+	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_MOD_RULES, theBoard)) return false;
 
 	SaveFileHeaderV4 aHeader{};
 	memcpy(aHeader.mMagic, SAVE_FILE_MAGIC_V4, sizeof(aHeader.mMagic));

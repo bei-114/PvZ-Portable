@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.sunny-lab",
+  "name": "Sunny Lab",
+  "priority": 10,
+  "enabled": true,
+  "plants": {
+    "PEASHOOTER": { "cost": 80, "launchRate": 120, "health": 420 },
+    "SUNFLOWER": { "cost": 25, "refresh": 600, "health": 450 }
+  },
+  "globals": { "startingSun": 300 }
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.electric-lab",
+  "name": "Electric Lab",
+  "priority": 30,
+  "enabled": true,
+  "plants": {
+    "ELECTRIC_GATLING_PEA": { "cost": 275, "refresh": 4000, "launchRate": 45, "health": 600 },
+    "PEASHOOTER": { "cost": 65 }
+  }
+}

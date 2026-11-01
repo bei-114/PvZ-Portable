@@ -1,0 +1,11 @@
+{
+  "name": "Legacy sample (v1)",
+  "priority": 0,
+  "plants": {
+    "PEASHOOTER": { "cost": 50, "refresh": 500, "launchRate": 120, "health": 400 }
+  },
+  "zombies": {
+    "ZOMBIE": { "health": 250, "pickWeight": 4000, "value": 1, "startingLevel": 1 }
+  },
+  "globals": { "startingSun": 100 }
+}

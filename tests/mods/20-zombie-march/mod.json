@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.zombie-march",
+  "name": "Zombie March",
+  "priority": 20,
+  "enabled": true,
+  "zombies": {
+    "ZOMBIE": { "health": 340, "pickWeight": 3000 },
+    "CONEHEAD_ZOMBIE": { "health": 600 },
+    "BUCKETHEAD_ZOMBIE": { "health": 1000 }
+  }
+}

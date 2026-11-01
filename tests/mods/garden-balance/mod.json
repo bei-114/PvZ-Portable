@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "org.example.garden-balance",
+  "name": "Garden balance (no copyrighted assets)",
+  "priority": 15,
+  "enabled": true,
+  "plants": {
+    "PEASHOOTER": { "cost": 75, "refresh": 650, "launchRate": 145, "health": 350 },
+    "SUNFLOWER": { "cost": 50, "launchRate": 2200 },
+    "WALL_NUT": { "cost": 60, "health": 4300 }
+  },
+  "zombies": {
+    "ZOMBIE": { "health": 280, "pickWeight": 4200 },
+    "CONEHEAD_ZOMBIE": { "pickWeight": 2700, "startingLevel": 3 }
+  },
+  "globals": { "startingSun": 150 }
+}

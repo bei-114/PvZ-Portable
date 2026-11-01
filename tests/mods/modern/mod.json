@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "id": "org.example.balance",
+  "name": "Example balance",
+  "priority": 10,
+  "enabled": true,
+  "plants": {
+    "PEASHOOTER": { "cost": 50, "refresh": 500, "launchRate": 120, "health": 400 }
+  },
+  "zombies": {
+    "ZOMBIE": { "health": 250, "pickWeight": 4000, "value": 1, "startingLevel": 1 }
+  },
+  "globals": { "startingSun": 100 }
+}

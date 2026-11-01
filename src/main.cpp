@@ -23,7 +23,10 @@
 #include "Resources.h"
 #include "PvzpLib/PvzpStringFile.h"
 #include <cstdlib>
+#include <string_view>
 #include <vector>
+
+extern int PvzpModRunTests();
 using namespace Sexy;
 
 #ifdef _WIN32
@@ -91,6 +94,10 @@ int main(int argc, char** argv)
 #ifdef _WIN32
 	BuildUtf8ArgsFromWin32(argc, argv);
 #endif
+
+	// Self-contained loader regression: no SDL, LawnApp, player assets or saves.
+	if (const char* aTest = std::getenv("PVZP_MOD_TEST"); aTest && std::string_view(aTest) == "1")
+		return PvzpModRunTests();
 
 	PvzpStringListSetColors(gLawnStringFormats, gLawnStringFormatCount);
 	gExtractResourcesByName = Sexy::ExtractResourcesByName;

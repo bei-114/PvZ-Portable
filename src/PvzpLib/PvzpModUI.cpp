@@ -2,6 +2,7 @@
 #include "PvzpModUI.h"
 #include "PvzpModTools.h"
 #include "PvzpPlantFood.h"
+#include "PvzpMod.h"
 #include "../Lawn/Board.h"
 #include "../LawnApp.h"
 #include "../Resources.h"
@@ -49,11 +50,18 @@ Plant* Pick(Board* b,int col,int row){
 std::string Label(Board* b,int i){
  auto& s=states[b];
  if(s.page==0){
-  switch(i){case 0:return "SUN +1000";case 1:return "SUN LOCK: "+std::string(s.sunLock?"ON":"OFF");case 2:return "FOOD x3";case 3:return "RECHARGE: "+std::string(s.recharge?"ON":"OFF");case 4:return "PLANT <";case 5:return "PLANT >";case 6:return "PLACE ANYWHERE";case 7:return "HEAL PLANTS";case 8:return "PAGE 1/3  >>";}
+  switch(i){case 0:return "SUN +1000";case 1:return "SUN LOCK: "+std::string(s.sunLock?"ON":"OFF");case 2:return "FOOD x3";case 3:return "RECHARGE: "+std::string(s.recharge?"ON":"OFF");case 4:return "PLANT <";case 5:return "PLANT >";case 6:return "PLACE ANYWHERE";case 7:return "HEAL PLANTS";case 8:return "PAGE 1/4  >>";}
  }else if(s.page==1){
-  switch(i){case 0:return "ZOMBIE <";case 1:return "ZOMBIE >";case 2:return "SPAWN MIDDLE";case 3:return "SPAWN ALL LANES";case 4:return "CLEAR ZOMBIES";case 5:return "CHILL ALL";case 6:return "NEXT WAVE";case 7:return "CLEAR BULLETS";case 8:return "PAGE 2/3  >>";}
+  switch(i){case 0:return "ZOMBIE <";case 1:return "ZOMBIE >";case 2:return "SPAWN MIDDLE";case 3:return "SPAWN ALL LANES";case 4:return "CLEAR ZOMBIES";case 5:return "CHILL ALL";case 6:return "NEXT WAVE";case 7:return "CLEAR BULLETS";case 8:return "PAGE 2/4  >>";}
  }else{
-  switch(i){case 0:return "FINISH LEVEL";case 1:return "UNLOCK PROFILE";case 2:return "CANCEL TOOLS";case 3:return "FILL SEED BANK";case 4:return "PLANT: E-GATL";case 5:return "PLANT: SUNFLOWER";case 6:return "PLANT: WALLNUT";case 7:return "RESET FOOD TIMER";case 8:return "PAGE 3/3  >>";}
+  if(s.page==2){switch(i){case 0:return "FINISH LEVEL";case 1:return "UNLOCK PROFILE";case 2:return "CANCEL TOOLS";case 3:return "FILL SEED BANK";case 4:return "PLANT: E-GATL";case 5:return "PLANT: SUNFLOWER";case 6:return "PLANT: WALLNUT";case 7:return "RESET FOOD TIMER";case 8:return "PAGE 3/4  >>";}}
+  const auto& mods=PvzpMod::List();const auto& errors=PvzpMod::Diagnostics();
+  if(i==0)return "LOADED: "+std::to_string(mods.size())+"  ERRORS: "+std::to_string(errors.size());
+  if(i>=1&&i<=5){size_t n=size_t(i-1);return n<mods.size() ?
+    std::string(mods[n].enabled?"ON  ":"OFF ")+mods[n].id.substr(0,20) : "-";}
+  if(i==6)return errors.empty()?"NO LOAD ERRORS":("ERR: "+errors.front().message.substr(0,22));
+  if(i==7)return "EDIT JSON / RESTART GAME";
+  if(i==8)return "PAGE 4/4  >>";
  }
  return "";
 }
@@ -158,7 +166,7 @@ void Board::DrawDbgPanel(Graphics* graphics){
  if(mDbgPlantPending)Box(g,Rect(160,80,430,30),"DEBUG PLACE: ANY CELL / DBG CANCEL",true);
  if(!mDbgOpen)return;
  g->SetColor(Color(13,23,34,246));g->FillRect(540,86,256,416);
- std::string title=s.page==1?std::string(GetZombieDefinition(spawnKinds[s.zombie]).mZombieName):GetPlantDefinition(static_cast<SeedType>(s.seed)).mPlantName;
+ std::string title=s.page==3?"MOD LOAD STATUS":s.page==1?std::string(GetZombieDefinition(spawnKinds[s.zombie]).mZombieName):GetPlantDefinition(static_cast<SeedType>(s.seed)).mPlantName;
  Text(g,title,668,108,Color(150,235,198));
  for(int i=0;i<9;++i)Box(g,PvzpModUI::ActionRect(this,i),Label(this,i));
 }
@@ -178,7 +186,8 @@ bool Board::DbgMouseDown(int x,int y){
  if(!mDbgOpen)return false;
  if(!Rect(540,86,256,416).Contains(x,y)){mDbgOpen=false;return true;}
  for(int i=0;i<9;++i){if(!PvzpModUI::ActionRect(this,i).Contains(x,y))continue;
-  if(i==8){s.page=(s.page+1)%3;return true;}
+  if(i==8){s.page=(s.page+1)%4;return true;}
+   if(s.page==3)return true; // read-only status; restart required to change gameplay rules
   if(s.page==0){switch(i){
    case 0:AddSunMoney(1000);break;case 1:s.sunLock=!s.sunLock;break;
    case 2:mPlantFoodCount=3;mPlantFoodTimer=0;break;case 3:s.recharge=!s.recharge;mSeedBank->RefreshAllPackets();break;
