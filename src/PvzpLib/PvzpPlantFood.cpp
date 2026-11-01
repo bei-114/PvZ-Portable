@@ -21,25 +21,25 @@ namespace
 // Deliberately explicit: a balance pass is not a blanket percentage discount.
 // cost / recharge ticks / launch ticks / base health / skill lifetime ticks.
 constexpr SkillInfo kSkills[] = {
- {SEED_PEASHOOTER, "Pea parade", "Six seconds of paired, correctly directed peas.", 75,650,140,300,600},
+ {SEED_PEASHOOTER, "Pea parade", "360-degree ring of peas every 0.4 s for six seconds.", 75,650,140,300,600},
  {SEED_SUNFLOWER, "Pocket sunrise", "Four waves of two collectible suns.", 50,750,2200,300,301},
  {SEED_CHERRYBOMB, "Cherry festival", "1800 damage in a visible, enlarged five-row blast; consumed.", 150,4500,0,300,30},
  {SEED_WALLNUT, "Hard candy shell", "Full repair plus at most 2000 temporary shield health for nine seconds.", 50,2600,0,4200,900},
  {SEED_POTATOMINE, "Express spud", "Arm immediately and detonate a 900-damage warning burst nearby.", 25,2400,0,300,30},
- {SEED_SNOWPEA, "Snowball fight", "Chill nearby enemies once; six seconds of paired snow peas.", 150,750,140,300,600},
+ {SEED_SNOWPEA, "Snowball fight", "Snow peas plus a wide chill pulse every 0.45 s.", 150,750,140,300,600},
  {SEED_CHOMPER, "Second helping", "Finish digestion, bite now, then digest rapidly for six seconds.", 125,750,0,400,600},
- {SEED_REPEATER, "Pea drumroll", "Six seconds of triple shots, preserving the original pea trajectory.", 175,750,140,300,600},
+ {SEED_REPEATER, "Pea drumroll", "Sustained double-barrel fire for six seconds.", 175,750,140,300,600},
  {SEED_PUFFSHROOM, "Puff party", "Short-range paired puffs plus a four-second spore volley.", 0,850,145,200,400},
  {SEED_SUNSHROOM, "Mushroom dawn", "Mature immediately and release five waves of collectible sun.", 25,750,2300,250,401},
  {SEED_FUMESHROOM, "Steam express", "Ten extra piercing fumes using the original row attack.", 75,750,140,350,301},
  {SEED_GRAVEBUSTER, "Grave rebate", "Clear nearby graves and craters; each cleared tile drops sun (maximum five).", 50,650,0,350,30},
  {SEED_HYPNOSHROOM, "Dance partners", "Hypnotize up to three nearby ordinary ground zombies; consumed.", 75,2400,0,300,30},
  {SEED_SCAREDYSHROOM, "Brave little spore", "Four seconds of aimed spore volleys, even while frightened.", 25,750,140,250,400},
- {SEED_ICESHROOM, "Deep winter", "Freeze the lawn and deal 120 cold damage to each enemy; consumed.", 75,4500,0,300,30},
- {SEED_DOOMSHROOM, "Friendly mushroom cloud", "1800 damage in a huge visible blast, without a crater or friendly fire; consumed.", 125,5000,0,300,30},
+ {SEED_ICESHROOM, "Deep winter", "Repeated freezes, 250 cold damage each; enough to kill a normal zombie.", 75,4500,0,300,301},
+ {SEED_DOOMSHROOM, "Friendly mushroom cloud", "Full-lawn 3600 damage; craters a 3x3 area as the price.", 125,5000,0,300,30},
  {SEED_LILYPAD, "Floating first aid", "Repair the same tile and adjacent water supports; grant bounded shields.", 25,650,0,400,600},
  {SEED_SQUASH, "Double stomp", "Two visible 900-damage stomps around the closest target; consumed.", 50,2500,0,300,30},
- {SEED_THREEPEATER, "Three-lane carnival", "Six seconds of paired shots on each lane, plus an immediate three-lane volley.", 300,750,145,300,600},
+ {SEED_THREEPEATER, "Three-lane carnival", "Six seconds of five-lane volleys (rows +-2).", 300,750,145,300,600},
  {SEED_TANGLEKELP, "Pool whirlpool", "Drag under up to three nearby ordinary pool zombies; consumed.", 25,2200,0,300,30},
  {SEED_JALAPENO, "Three-alarm chili", "Burn three rows with the original fire-row effect and damage; consumed.", 125,4500,0,300,30},
  {SEED_SPIKEWEED, "Tap dance", "Eight visible local spike pulses over four seconds.", 100,700,0,300,351},
@@ -47,9 +47,9 @@ constexpr SkillInfo kSkills[] = {
  {SEED_TALLNUT, "Fortress confection", "Full repair plus at most 4000 temporary shield health for nine seconds.", 125,2800,0,8500,900},
  {SEED_SEASHROOM, "Tidal spores", "Paired short-range spores and four seconds of water-lane volleys.", 0,1800,145,250,400},
  {SEED_PLANTERN, "Beacon of recovery", "Six visible repair pulses in the surrounding nine tiles, no passive damage aura.", 25,1400,0,400,501},
- {SEED_CACTUS, "Needle storm", "Six seconds of paired needles, with extra high and low volleys.", 100,750,140,350,600},
+ {SEED_CACTUS, "Needle storm", "Six seconds of three-lane needle fire.", 100,750,140,350,600},
  {SEED_BLOVER, "Gale force", "Blow away fliers and chill ground enemies across the lawn; consumed.", 75,900,0,300,30},
- {SEED_SPLITPEA, "Backstage encore", "Six seconds of paired front and back shots; rear peas keep backwards motion.", 125,750,140,350,600},
+ {SEED_SPLITPEA, "Backstage encore", "Six seconds of paired front and rear shots.", 125,750,140,350,600},
  {SEED_STARFRUIT, "Meteor shower", "Eight extra five-direction star volleys over four seconds.", 125,750,140,300,351},
  {SEED_PUMPKINSHELL, "Pumpkin carriage", "Repair the shell and protect every plant on its tile with a bounded shield.", 125,2600,0,4200,900},
  {SEED_MAGNETSHROOM, "Metal detector", "Strip up to five eligible metal objects with the original magnet API.", 100,750,0,300,30},
@@ -61,9 +61,9 @@ constexpr SkillInfo kSkills[] = {
  {SEED_UMBRELLA, "Picnic shelter", "Trigger umbrella defence and grant six-second shields to the surrounding nine tiles.", 100,750,0,400,600},
  {SEED_MARIGOLD, "Golden bouquet", "Four waves of collectible gold coins, not invisible account credit.", 50,2200,2200,300,301},
  {SEED_MELONPULT, "Melon picnic", "Six seconds of paired splash melons with original lob trajectories.", 275,750,280,350,600},
- {SEED_GATLINGPEA, "Pea fireworks", "Six seconds of three projectiles per shot, keeping the normal four-shot cycle.", 225,4200,140,350,600},
+ {SEED_GATLINGPEA, "Pea fireworks", "Summons three Torchwoods ahead and fires three lanes of fire peas.", 225,4200,140,350,600},
  {SEED_TWINSUNFLOWER, "Twin sunrise", "Five waves of three collectible suns.", 125,4000,2200,350,401},
- {SEED_GLOOMSHROOM, "Purple disco", "Eight additional original eight-way area pulses over four seconds.", 150,4200,190,350,351},
+ {SEED_GLOOMSHROOM, "Purple disco", "Spinning spore storm with a mushroom ring summoned around it.", 150,4200,190,350,351},
  {SEED_CATTAIL, "Nine lives volley", "Six seconds of three homing spikes per shot; each retains its target ID.", 225,4200,140,350,600},
  {SEED_WINTERMELON, "Winter picnic", "Six seconds of paired cold splash melons plus one nearby chill pulse.", 200,4500,280,350,600},
  {SEED_GOLD_MAGNET, "Treasure sweep", "Four rapid original coin-attraction sweeps and two collectible gold coins.", 50,3500,0,350,301},
@@ -88,7 +88,7 @@ constexpr bool RegistryValid()
 static_assert(RegistryValid(), "Every original plant and E requires an explicit valid skill/balance record");
 struct Charge { SeedType seed; int remaining; int elapsed = 0; int extraBudget = 96; bool cobFired = false; };
 struct Shield { int remaining; int cap; };
-struct State { std::map<uint32_t, Charge> charges; std::map<uint32_t, Shield> shields; };
+struct State { std::map<uint32_t, Charge> charges; std::map<uint32_t, Shield> shields; std::vector<std::pair<uint32_t,int>> tempPlants; };
 std::map<Board*, State> gStates;
 
 Plant* Live(Board* b, uint32_t id)
@@ -170,6 +170,53 @@ void FireLane(Plant* p, int row, PlantWeapon weapon = WEAPON_PRIMARY)
     Zombie* target = p->FindTargetZombie(row, weapon);
     if (target) p->Fire(target, row, weapon);
 }
+bool CellOk(Board* b,int col,int row)
+{
+    return col>=0 && col<MAX_GRID_SIZE_X && row>=0 && row<(b->StageHas6Rows()?6:5);
+}
+void Summon(Plant* source, SeedType seed, int col, int row, int ticks)
+{
+    Board* b=source->mBoard;
+    if(!CellOk(b,col,row) || b->CanPlantAt(col,row,seed)!=PlantingReason::PLANTING_OK) return;
+    Plant* q=b->AddPlant(col,row,seed);
+    if(q && ticks>0) gStates[b].tempPlants.push_back({b->mPlants.DataArrayGetID(q),ticks});
+}
+void RingVolley(Plant* p,int count)
+{
+    Board* b=p->mBoard;
+    int x=p->mX+40,y=p->mY+20;
+    for(int i=0;i<count;++i)
+    {
+        if(b->mProjectiles.mSize+4>=b->mProjectiles.mMaxSize) break;
+        float a=DEG_TO_RAD(360.f*i/count);
+        Projectile* q=b->AddProjectile(x,y,p->mRenderOrder-1,p->mRow,PROJECTILE_PEA);
+        if(!q) continue;
+        q->mDamageRangeFlags=p->GetDamageRangeFlags();
+        q->mMotionType=ProjectileMotion::MOTION_STAR;
+        q->mVelX=std::cos(a)*4.5f; q->mVelY=std::sin(a)*4.5f;
+    }
+}
+void LancetRow(Plant* p,int row,int damage)
+{
+    if(!CellOk(p->mBoard,0,row)) return;
+    p->DoRowAreaDamage(damage,0U);
+}
+void DoomCraters(Plant* p)
+{
+    Board* b=p->mBoard;
+    for(int dx=-1;dx<=1;++dx) for(int dy=-1;dy<=1;++dy)
+    {
+        int c=p->mPlantCol+dx,r=p->mRow+dy;
+        if(!CellOk(b,c,r) || b->GetCraterAt(c,r)) continue;
+        b->AddACrater(c,r);
+    }
+}
+void FreezeAll(Plant* p,int damage)
+{
+    p->IceZombies();
+    for(Zombie* z : p->mBoard->mZombies)
+        if(Enemy(z) && z->EffectedByDamage(p->GetDamageRangeFlags())) z->TakeDamage(damage,4U);
+}
 void ReloadCob(Plant* p)
 {
     p->mShootingCounter = 0;
@@ -200,17 +247,55 @@ void Pulse(Plant* p, Charge& c)
         }
         break;
     case SEED_GLOOMSHROOM:
-        if (t % 50 == 0) { p->Fire(nullptr, p->mRow); Effect(p, PARTICLE_GLOOMCLOUD); }
+        // Spinning spore storm: dense pulses in every direction.
+        if (t % 12 == 0)
+        {
+            p->Fire(nullptr,p->mRow);
+            for(int k=0;k<3;++k)
+            {
+                float a=DEG_TO_RAD(120.f*k + (t*7)%60);
+                p->mApp->AddPvzpParticle(p->mX+40+std::cos(a)*50,p->mY+40+std::sin(a)*50,p->mRenderOrder+3,PARTICLE_GLOOMCLOUD);
+            }
+        }
+        break;
+    case SEED_GATLINGPEA:
+        if (t % 8 == 0)
+        {
+            for(int row=p->mRow-1;row<=p->mRow+1;++row) FireLane(p,row);
+            if(t%24==0) Effect(p,PARTICLE_SEED_PACKET_FLASH);
+        }
+        break;
+    case SEED_ICESHROOM:
+        if (t % 60 == 0) { FreezeAll(p,250); Effect(p,PARTICLE_ICE_TRAP); }
+        break;
+    case SEED_PEASHOOTER:
+        if (t % 40 == 0) { RingVolley(p,12); Effect(p,PARTICLE_SEED_PACKET_FLASH); }
+        break;
+    case SEED_SNOWPEA:
+        if (t % 45 == 0) { FireLane(p,p->mRow); Chill(p,520); }
+        break;
+    case SEED_REPEATER:
+        if (t % 25 == 0) FireLane(p,p->mRow);
+        break;
+    case SEED_SPLITPEA:
+        if (t % 35 == 0) { FireLane(p,p->mRow,WEAPON_PRIMARY); FireLane(p,p->mRow,WEAPON_SECONDARY); }
         break;
     case SEED_STARFRUIT:
         if (t % 50 == 0 && p->mBoard->mProjectiles.mSize + 5 < p->mBoard->mProjectiles.mMaxSize)
             { p->StarFruitFire(); Effect(p, PARTICLE_SEED_PACKET_FLASH); }
         break;
     case SEED_PUFFSHROOM: case SEED_SEASHROOM: case SEED_SCAREDYSHROOM:
-        if (t % 45 == 0) FireLane(p, p->mRow);
+        if (t % 45 == 0) { FireLane(p, p->mRow); Effect(p,PARTICLE_PUFFSHROOM_MUZZLE); }
         break;
     case SEED_CACTUS:
-        if (t % 100 == 0) { FireLane(p,p->mRow,WEAPON_PRIMARY); FireLane(p,p->mRow,WEAPON_SECONDARY); }
+        if (t % 60 == 0)
+        {
+            for(int row=p->mRow-1;row<=p->mRow+1;++row)
+            {
+                FireLane(p,row,WEAPON_PRIMARY);
+                if(row==p->mRow) FireLane(p,row,WEAPON_SECONDARY);
+            }
+        }
         break;
     case SEED_SPIKEWEED: case SEED_SPIKEROCK:
         if (t % 50 == 0)
@@ -290,15 +375,20 @@ bool Apply(Board* b, Plant* p)
     case SEED_FLOWERPOT: Neighbours(p,500,300,600); break;
     case SEED_UMBRELLA: p->DoSpecial(); Neighbours(p,150,600,600); break;
     case SEED_CHERRYBOMB: Burst(p,p->mX+40,p->mY+40,210,2,1800); p->Die(); break;
-    case SEED_DOOMSHROOM: Burst(p,p->mX+40,p->mY+40,350,3,1800); Effect(p,PARTICLE_DOOM); p->Die(); break;
+    case SEED_DOOMSHROOM:
+    {
+        // Full-lawn double damage, paid for by cratering a 3x3 area.
+        for(Zombie* z : b->mZombies)
+            if(Enemy(z) && z->EffectedByDamage(p->GetDamageRangeFlags())) z->TakeDamage(3600,0U);
+        DoomCraters(p); Effect(p,PARTICLE_DOOM); p->Die(); break;
+    }
     case SEED_JALAPENO:
         for (int row=std::max(0,p->mRow-1);row<=std::min((b->StageHas6Rows()?5:4),p->mRow+1);++row)
             { b->DoFwoosh(row); p->BurnRow(row); b->mIceTimer[row]=20; }
         p->Die(); break;
     case SEED_ICESHROOM:
-        p->IceZombies();
-        for (Zombie* z : b->mZombies) if (Enemy(z) && z->EffectedByDamage(p->GetDamageRangeFlags())) z->TakeDamage(120,4U);
-        Effect(p,PARTICLE_ICE_TRAP); p->Die(); break;
+        // Repeated freezes with lethal cold pulses are driven by Pulse.
+        FreezeAll(p,250); Effect(p,PARTICLE_ICE_TRAP); break;
     case SEED_POTATOMINE:
         p->mState=STATE_POTATO_ARMED; p->mStateCountdown=0;
         p->PlayBodyReanim("anim_armed",REANIM_LOOP,10,12.0f);
@@ -317,8 +407,21 @@ bool Apply(Board* b, Plant* p)
         p->PlayBodyReanim("anim_bigidle",REANIM_LOOP,10,15.0f); break;
     case SEED_SNOWPEA: case SEED_WINTERMELON: Chill(p,400); break;
     case SEED_TORCHWOOD: Burst(p,p->mX+40,p->mY+40,140,1,180); break;
+    case SEED_GATLINGPEA:
+        // Three temporary Torchwoods turn the barrage into fire peas.
+        Summon(p,SEED_TORCHWOOD,p->mPlantCol+1,p->mRow-1,900);
+        Summon(p,SEED_TORCHWOOD,p->mPlantCol+1,p->mRow,900);
+        Summon(p,SEED_TORCHWOOD,p->mPlantCol+1,p->mRow+1,900);
+        break;
+    case SEED_GLOOMSHROOM:
+        // A ring of mushrooms joins the spinning spore storm.
+        Summon(p,SEED_PUFFSHROOM,p->mPlantCol-1,p->mRow,0);
+        Summon(p,SEED_SCAREDYSHROOM,p->mPlantCol+1,p->mRow,0);
+        Summon(p,SEED_FUMESHROOM,p->mPlantCol,p->mRow-1,0);
+        Summon(p,SEED_HYPNOSHROOM,p->mPlantCol,p->mRow+1,0);
+        break;
     case SEED_THREEPEATER:
-        for (int row=p->mRow-1;row<=p->mRow+1;++row) FireLane(p,row); break;
+        for (int row=p->mRow-2;row<=p->mRow+2;++row) FireLane(p,row); break;
     case SEED_SPLITPEA: FireLane(p,p->mRow,WEAPON_PRIMARY); FireLane(p,p->mRow,WEAPON_SECONDARY); break;
     case SEED_GRAVEBUSTER:
     {
@@ -410,10 +513,9 @@ void AfterFire(Plant* p, Projectile* shot, Zombie*, PlantWeapon)
     int count=0;
     switch(c.seed)
     {
-    case SEED_PEASHOOTER: case SEED_SNOWPEA: case SEED_PUFFSHROOM: case SEED_SCAREDYSHROOM:
-    case SEED_SEASHROOM: case SEED_THREEPEATER: case SEED_SPLITPEA: case SEED_CACTUS:
     case SEED_CABBAGEPULT: case SEED_KERNELPULT: case SEED_MELONPULT: case SEED_WINTERMELON: count=1; break;
-    case SEED_REPEATER: case SEED_GATLINGPEA: case SEED_CATTAIL: count=2; break;
+    case SEED_SPLITPEA: count=1; break;
+    case SEED_CATTAIL: count=2; break;
     default: return; // Not a generic triple-shot, especially never E or cob cannon.
     }
     for(int i=0;i<count && c.extraBudget>0;++i)
@@ -449,7 +551,11 @@ void Update(Board* b)
     {
         Plant* p=Live(b,it->first);
         Charge& c=it->second;
-        if(!p || p->mSeedType!=c.seed || p->NotOnGround() || --c.remaining<=0) { it=s.charges.erase(it); continue; }
+        if(!p || p->mSeedType!=c.seed || p->NotOnGround() || --c.remaining<=0)
+        {
+            if(p && !p->mDead && c.seed==SEED_ICESHROOM) p->Die();
+            it=s.charges.erase(it); continue;
+        }
         ++c.elapsed; Pulse(p,c); ++it;
     }
     for(auto it=s.shields.begin();it!=s.shields.end();)
@@ -460,7 +566,13 @@ void Update(Board* b)
         { p->mPlantHealth=std::min(p->mPlantHealth,p->mPlantMaxHealth); it=s.shields.erase(it); }
         else ++it;
     }
-    if(s.charges.empty() && s.shields.empty()) gStates.erase(found);
+    for(auto it=s.tempPlants.begin();it!=s.tempPlants.end();)
+    {
+        Plant* q=b->mPlants.DataArrayTryToGet(it->first);
+        if(!q || q->mDead){it=s.tempPlants.erase(it);continue;}
+        if(--it->second<=0){q->Die();it=s.tempPlants.erase(it);} else ++it;
+    }
+    if(s.charges.empty() && s.shields.empty() && s.tempPlants.empty()) gStates.erase(found);
 }
 void Reset(Board* b)
 {
