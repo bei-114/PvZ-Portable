@@ -69,7 +69,15 @@ std::string Label(Board* b,int i){
  }
  return "";
 }
-void SeedStep(UIState& s,int dir){int v=s.seed==53?49:s.seed;v=(v+dir+50)%50;s.seed=v==49?53:v;}
+void SeedStep(UIState& s,int dir)
+{
+	static const int aSeeds[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,53,54,55};
+	const int aCount = static_cast<int>(sizeof(aSeeds)/sizeof(aSeeds[0]));
+	int aIndex = 0;
+	for (int i = 0; i < aCount; ++i) if (aSeeds[i] == s.seed) { aIndex = i; break; }
+	aIndex = (aIndex + dir + aCount) % aCount;
+	s.seed = aSeeds[aIndex];
+}
 constexpr ZombieType spawnKinds[]={ZOMBIE_NORMAL,ZOMBIE_TRAFFIC_CONE,ZOMBIE_PAIL,ZOMBIE_NEWSPAPER,ZOMBIE_FOOTBALL,ZOMBIE_BALLOON,ZOMBIE_SNORKEL,ZOMBIE_GARGANTUAR};
 void Spawn(Board* b,int row){auto& s=states[b];if(b->mZombies.mSize+1>=b->mZombies.mMaxSize)return; auto z=spawnKinds[s.zombie]; if(z==ZOMBIE_SNORKEL && !b->StageHasPool())return; b->AddZombieInRow(z,row,Zombie::ZOMBIE_WAVE_DEBUG);}
 void Put(std::vector<uint8_t>& out,uint32_t v){for(int i=0;i<4;++i)out.push_back(uint8_t(v>>(8*i)));}
