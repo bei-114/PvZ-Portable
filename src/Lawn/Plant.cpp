@@ -4723,6 +4723,22 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
 		}
 	}
 
+	// Plant food: a boosted shooter fires a triple burst while its charge lasts.
+	if (mSubclass == PlantSubClass::SUBCLASS_SHOOTER &&
+		mBoard->IsPlantBoosted(mBoard->mPlants.DataArrayGetID(this)))
+	{
+		for (int i = 0; i < 2; ++i)
+		{
+			Projectile* aExtra = mBoard->AddProjectile(aOriginX + 6, aOriginY + i * 6 - 3,
+				mRenderOrder - 1, theRow, aProjectileType);
+			if (!aExtra)
+				continue;
+			aExtra->mDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
+			if (mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
+				aExtra->SetElectric();
+		}
+	}
+
 	if (mSeedType == SeedType::SEED_CABBAGEPULT || mSeedType == SeedType::SEED_KERNELPULT ||
 		mSeedType == SeedType::SEED_MELONPULT || mSeedType == SeedType::SEED_WINTERMELON)
 	{

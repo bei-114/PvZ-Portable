@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 
 #include "../ConstEnums.h"
 #include "../PvzpLib/DataArray.h"
@@ -294,6 +295,20 @@ public:
 	bool							mDbgPlantPending = false;
 	bool                            mDbgConsumeMouseUp = false;
 	void                            FireElectricFan(Plant* thePlant);
+	void                            SpawnElectricFanVolley(Plant* thePlant);
+	uint32_t                        mFanPlantID = 0xFFFFFFFFU;
+	int                             mFanVolleys = 0;
+	int                             mFanTicks = 0;
+	// PvZ2-style plant food: one charge at level start, a new one every 30 s.
+	int                             mPlantFoodCount = 1;
+	int                             mPlantFoodTimer = 0;
+	bool                            mPlantFoodSelecting = false;
+	std::unordered_map<uint32_t, int> mPlantBoosts;
+	Rect                            GetPlantFoodRect();
+	void                            DrawPlantFood(Graphics* g);
+	bool                            PlantFoodMouseDown(int x, int y);
+	void                            ApplyPlantFood(Plant* thePlant);
+	bool                            IsPlantBoosted(uint32_t thePlantID);
 	void							DrawBackdrop(Graphics* g);
 	void							ButtonPress  	(int) override{}
 	void							ButtonDepress	(int) override{}
