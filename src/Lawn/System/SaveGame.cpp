@@ -38,6 +38,8 @@
 #include "../../PvzpLib/EffectSystem.h"
 #include "../../PvzpLib/DataArray.h"
 #include "../../PvzpLib/PvzpList.h"
+#include "../../PvzpLib/PvzpModUI.h"
+#include "../../PvzpLib/PvzpPlantFood.h"
 #include "DataSync.h"
 #include "misc/Buffer.h"
 #include <algorithm>
@@ -90,7 +92,8 @@ enum SaveChunkTypeV4
 	SAVE4_CHUNK_SEEDBANK = 17,
 	SAVE4_CHUNK_SEEDPACKETS = 18,
 	SAVE4_CHUNK_CHALLENGE = 19,
-	SAVE4_CHUNK_MUSIC = 20
+	SAVE4_CHUNK_MUSIC = 20,
+	SAVE4_CHUNK_MOD_GAMEPLAY = 0x4D4F4401
 };
 
 static constexpr const uint32_t SAVE4_CHUNK_VERSION = 1U;
@@ -1370,9 +1373,14 @@ static void SyncDataArrayPortable(PortableSaveContext& theContext, DataArray<T>&
 	theContext.SyncUInt32(theDataArray.mNextKey);
 	uint32_t aMaxSize = theDataArray.mMaxSize;
 	theContext.SyncUInt32(aMaxSize);
-	if (theContext.mReading && aMaxSize != theDataArray.mMaxSize)
+	if (theContext.mReading && (theContext.mFailed || aMaxSize != theDataArray.mMaxSize ||
+		theDataArray.mMaxUsedCount > theDataArray.mMaxSize ||
+		theDataArray.mSize > theDataArray.mMaxUsedCount ||
+		theDataArray.mFreeListHead > theDataArray.mMaxSize))
 	{
 		theContext.mFailed = true;
+		theDataArray.mMaxUsedCount=0;theDataArray.mSize=0;theDataArray.mFreeListHead=0;
+		return;
 	}
 
 	for (uint32_t i = 0; i < theDataArray.mMaxUsedCount; i++)
@@ -1391,9 +1399,14 @@ static void SyncDataArrayIdsOnlyPortable(PortableSaveContext& theContext, DataAr
 	theContext.SyncUInt32(theDataArray.mNextKey);
 	uint32_t aMaxSize = theDataArray.mMaxSize;
 	theContext.SyncUInt32(aMaxSize);
-	if (theContext.mReading && aMaxSize != theDataArray.mMaxSize)
+	if (theContext.mReading && (theContext.mFailed || aMaxSize != theDataArray.mMaxSize ||
+		theDataArray.mMaxUsedCount > theDataArray.mMaxSize ||
+		theDataArray.mSize > theDataArray.mMaxUsedCount ||
+		theDataArray.mFreeListHead > theDataArray.mMaxSize))
 	{
 		theContext.mFailed = true;
+		theDataArray.mMaxUsedCount=0;theDataArray.mSize=0;theDataArray.mFreeListHead=0;
+		return;
 	}
 
 	for (uint32_t i = 0; i < theDataArray.mMaxUsedCount; i++)
@@ -1411,9 +1424,14 @@ static void SyncDataArrayPortableTLV(PortableSaveContext& theContext, DataArray<
 	theContext.SyncUInt32(theDataArray.mNextKey);
 	uint32_t aMaxSize = theDataArray.mMaxSize;
 	theContext.SyncUInt32(aMaxSize);
-	if (theContext.mReading && aMaxSize != theDataArray.mMaxSize)
+	if (theContext.mReading && (theContext.mFailed || aMaxSize != theDataArray.mMaxSize ||
+		theDataArray.mMaxUsedCount > theDataArray.mMaxSize ||
+		theDataArray.mSize > theDataArray.mMaxUsedCount ||
+		theDataArray.mFreeListHead > theDataArray.mMaxSize))
 	{
 		theContext.mFailed = true;
+		theDataArray.mMaxUsedCount=0;theDataArray.mSize=0;theDataArray.mFreeListHead=0;
+		return;
 	}
 
 	for (uint32_t i = 0; i < theDataArray.mMaxUsedCount; i++)
@@ -1423,6 +1441,7 @@ static void SyncDataArrayPortableTLV(PortableSaveContext& theContext, DataArray<
 		{
 			uint32_t aItemSize = 0;
 			theContext.SyncUInt32(aItemSize);
+			if(theContext.mFailed || aItemSize>1024U*1024U){theContext.mFailed=true;return;}
 			T& anItem = theDataArray.DataArrayResetItemAt(i);
 			std::vector<uint8_t> aItemData;
 			aItemData.resize(aItemSize);
@@ -1440,6 +1459,7 @@ static void SyncDataArrayPortableTLV(PortableSaveContext& theContext, DataArray<
 					break;
 				theReadFn(aFieldId, aFieldData, aFieldSize, anItem);
 			}
+			if(!aReader.mOk){theContext.mFailed=true;return;}
 		}
 		else
 		{
@@ -1478,7 +1498,7 @@ static void SyncDataArrayObjectsTLV(PortableSaveContext& theContext, DataArray<T
 					ReadGameObjectField(aData, aSize, anItem);
 				break;
 			case PORTABLE_FIELD_TAIL:
-				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ theTailSync(c, anItem); });
+				if(!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ theTailSync(c, anItem); }))theContext.mFailed=true;
 				break;
 			default: break;
 			}
@@ -1737,7 +1757,7 @@ static void SyncBoardBasePortable(PortableSaveContext& theContext, Board* theBoa
 			if (aFieldId >= 1 && aFieldId <= sizeof(gBoardBaseFields) / sizeof(gBoardBaseFields[0]))
 			{
 				const BoardBaseFieldEntry& aField = gBoardBaseFields[aFieldId - 1];
-				ApplyFieldWithSync(aFieldData, aFieldSize, [&](PortableSaveContext& c){ aField.mSync(c, theBoard); });
+				if(!ApplyFieldWithSync(aFieldData, aFieldSize, [&](PortableSaveContext& c){ aField.mSync(c, theBoard); }))theContext.mFailed=true;
 			}
 		}
 	}
@@ -1961,6 +1981,25 @@ static void SyncBoardPortable(PortableSaveContext& theContext, Board* theBoard)
 }
 
 
+static void SyncModGameplay(PortableSaveContext& c, Board* board)
+{
+	std::vector<uint8_t> bytes;
+	uint32_t size = 0;
+	if (!c.mReading) { bytes=PvzpModUI::Save(board);if(bytes.empty()){c.mFailed=true;return;}size=static_cast<uint32_t>(bytes.size()); }
+	c.SyncUInt32(size);
+	if (c.mFailed || size > 9U*1024U*1024U) { c.mFailed=true;return; }
+	if (c.mReading) bytes.resize(size);
+	if (size) c.SyncBytes(bytes.data(),size);
+	if (c.mReading && !c.mFailed)
+	{
+		// Entity chunks intentionally omit process pointers; bind before importing
+		// generation-ID keyed skill/electric state (the full fix-up still follows).
+		for (Plant* p:board->mPlants) { p->mApp=board->mApp;p->mBoard=board; }
+		for (Projectile* p:board->mProjectiles) { p->mApp=board->mApp;p->mBoard=board; }
+		if (!PvzpModUI::Load(board,bytes)) c.mFailed=true;
+	}
+}
+
 typedef void (*ChunkSyncFn)(PortableSaveContext&, Board*);
 
 static ChunkSyncFn GetChunkSyncFn(uint32_t theChunkType)
@@ -2007,6 +2046,8 @@ static ChunkSyncFn GetChunkSyncFn(uint32_t theChunkType)
 		return SyncChallengePortable;
 	case SAVE4_CHUNK_MUSIC:
 		return SyncMusicPortable;
+	case SAVE4_CHUNK_MOD_GAMEPLAY:
+		return SyncModGameplay;
 	default:
 		return nullptr;
 	}
@@ -2787,37 +2828,25 @@ static void SyncBoard(SaveGameContext& theContext, Board* theBoard)
 
 bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 {
+	theBoard->ResetModGameplay();
+	ResetElectricProjectiles(theBoard);
 	if (LawnLoadGameV4(theBoard, theFilePath))
 	{
+		// Older portable saves have no MOD chunk. Discard unexplained overhealth
+		// left by the old infinite-health-doubling implementation.
+		for (Plant* p:theBoard->mPlants)
+			if (!p->mDead && PvzpPlantFood::ShieldHealth(theBoard,theBoard->mPlants.DataArrayGetID(p))==0)
+				p->mPlantHealth=std::min(p->mPlantHealth,p->mPlantMaxHealth);
 		PvzpLogLn("Loaded save game (v4)");
 		return true;
 	}
 
-	SaveGameContext aContext;
-	aContext.mFailed = false;
-	aContext.mReading = true;
-	if (!gSexyAppBase->ReadBufferFromFile(theFilePath, &aContext.mBuffer, false))
-	{
-		return false;
-	}
-
-	SaveFileHeader aHeader;
-	aContext.SyncBytes(&aHeader, sizeof(aHeader));
-	if (aHeader.mMagicNumber != SAVE_FILE_MAGIC_NUMBER || aHeader.mBuildVersion != SAVE_FILE_VERSION || aHeader.mBuildDate != SAVE_FILE_DATE)
-	{
-		return false;
-	}
-
-	SyncBoard(aContext, theBoard);
-	if (aContext.mFailed)
-	{
-		return false;
-	}
-
-	PvzpLogLn("Loaded save game (legacy)");
-	FixBoardAfterLoad(theBoard);
-	theBoard->mApp->mGameScene = GameScenes::SCENE_PLAYING;
-	return true;
+	// Binary legacy saves embed the old C++ Board layout and pointer-bearing
+	// structures. Never memcpy those bytes into this extended runtime. Portable
+	// v4 saves remain supported; an incompatible legacy file is left untouched.
+	PvzpLogLn("Save not loaded: invalid portable save or unsupported legacy binary layout");
+	theBoard->ResetModGameplay();
+	return false;
 }
 
 bool LawnSaveGame(Board* theBoard, const std::string& theFilePath)
@@ -2843,6 +2872,7 @@ bool LawnSaveGame(Board* theBoard, const std::string& theFilePath)
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_SEEDPACKETS, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_CHALLENGE, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_MUSIC, theBoard)) return false;
+	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_MOD_GAMEPLAY, theBoard)) return false;
 
 	SaveFileHeaderV4 aHeader{};
 	memcpy(aHeader.mMagic, SAVE_FILE_MAGIC_V4, sizeof(aHeader.mMagic));

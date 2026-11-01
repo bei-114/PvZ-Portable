@@ -39,6 +39,7 @@
 #include <cstdlib>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace
@@ -121,6 +122,157 @@ void TraceElectricImpact(size_t theHitCount, size_t theLifetimeHits)
 		std::fprintf(stderr, "[electric] impacts=%llu damaged_targets=%llu last_chain=%zu projectile_unique_hits=%zu\n",
 			aImpacts, aTargets, theHitCount, theLifetimeHits);
 }
+}
+
+// Electric save extension v1 (all integers unsigned little-endian):
+//   'ELEC', version=1, recordCount;
+//   repeated { projectileGenerationID, electricFlag=1, hitCount, hitGenerationIDs... }.
+// Omitted projectiles are ordinary. Bolts are visual-only and intentionally not
+// persisted. A zombie need not still exist: retaining its full generation ID is
+// what prevents an old hit from affecting a newly allocated zombie in that slot.
+namespace
+{
+constexpr uint32_t ELECTRIC_SAVE_MAGIC = 0x43454C45U;
+constexpr uint32_t ELECTRIC_SAVE_VERSION = 1U;
+constexpr size_t ELECTRIC_SAVE_LIMIT = 8U * 1024U * 1024U;
+
+bool ValidElectricGenerationID(uint32_t id, unsigned int capacity)
+{
+	return (id & 0xFFFF0000U) != 0 && (id & 0xFFFFU) < capacity;
+}
+
+void WriteElectricU32(std::vector<uint8_t>& data, uint32_t value)
+{
+	for (unsigned int shift = 0; shift < 32; shift += 8)
+		data.push_back(static_cast<uint8_t>(value >> shift));
+}
+}
+
+void ResetElectricProjectiles(Board* theBoard)
+{
+	if (!theBoard)
+		return;
+	std::erase_if(gElectricProjectiles, [theBoard](const auto& entry) {
+		return entry.second.mBoard == theBoard;
+	});
+}
+
+std::vector<uint8_t> SaveElectricProjectiles(Board* theBoard)
+{
+	if (!theBoard)
+		return {};
+	std::vector<std::pair<uint32_t, const ElectricProjectileState*>> records;
+	size_t bytes = 12;
+	for (Projectile* projectile : theBoard->mProjectiles)
+	{
+		if (projectile->mDead)
+			continue;
+		const ElectricProjectileState* state = GetElectricState(projectile);
+		if (!state)
+			continue;
+		const uint32_t id = theBoard->mProjectiles.DataArrayGetID(projectile);
+		if (!ValidElectricGenerationID(id, theBoard->mProjectiles.mMaxSize) ||
+			state->mHitZombieIDs.size() > theBoard->mZombies.mMaxSize)
+			return {};
+		for (uint32_t hit : state->mHitZombieIDs)
+			if (!ValidElectricGenerationID(hit, theBoard->mZombies.mMaxSize))
+				return {};
+		const size_t recordBytes = 12 + state->mHitZombieIDs.size() * 4;
+		if (recordBytes > ELECTRIC_SAVE_LIMIT - bytes)
+			return {};
+		bytes += recordBytes;
+		records.emplace_back(id, state);
+	}
+	if (records.size() > theBoard->mProjectiles.mMaxSize)
+		return {};
+	std::vector<uint8_t> data;
+	data.reserve(bytes);
+	WriteElectricU32(data, ELECTRIC_SAVE_MAGIC);
+	WriteElectricU32(data, ELECTRIC_SAVE_VERSION);
+	WriteElectricU32(data, static_cast<uint32_t>(records.size()));
+	for (const auto& [id, state] : records)
+	{
+		WriteElectricU32(data, id);
+		WriteElectricU32(data, 1U);
+		WriteElectricU32(data, static_cast<uint32_t>(state->mHitZombieIDs.size()));
+		std::vector<uint32_t> hits(state->mHitZombieIDs.begin(), state->mHitZombieIDs.end());
+		std::sort(hits.begin(), hits.end());
+		for (uint32_t hit : hits)
+			WriteElectricU32(data, hit);
+	}
+	return data;
+}
+
+bool LoadElectricProjectiles(Board* theBoard, const std::vector<uint8_t>& theData)
+{
+	if (!theBoard || theData.size() < 12 || theData.size() > ELECTRIC_SAVE_LIMIT)
+		return false;
+	size_t position = 0;
+	auto read = [&](uint32_t& value) {
+		if (theData.size() - position < 4)
+			return false;
+		value = 0;
+		for (unsigned int shift = 0; shift < 32; shift += 8)
+			value |= static_cast<uint32_t>(theData[position++]) << shift;
+		return true;
+	};
+	uint32_t magic, version, count;
+	if (!read(magic) || !read(version) || !read(count) || magic != ELECTRIC_SAVE_MAGIC ||
+		version != ELECTRIC_SAVE_VERSION || count > theBoard->mProjectiles.mMaxSize ||
+		count > (theData.size() - position) / 12)
+		return false;
+	std::unordered_map<Projectile*, ElectricProjectileState> pending;
+	pending.reserve(count);
+	std::unordered_set<uint32_t> projectileIDs;
+	projectileIDs.reserve(count);
+	for (uint32_t i = 0; i < count; ++i)
+	{
+		uint32_t id, electric, hitCount;
+		if (!read(id) || !read(electric) || !read(hitCount) || electric != 1U ||
+			!ValidElectricGenerationID(id, theBoard->mProjectiles.mMaxSize) ||
+			!projectileIDs.insert(id).second || hitCount > theBoard->mZombies.mMaxSize ||
+			hitCount > (theData.size() - position) / 4)
+			return false;
+		Projectile* projectile = theBoard->mProjectiles.DataArrayTryToGet(id);
+		if (!projectile || projectile->mDead || projectile->mBoard != theBoard)
+			return false;
+		ElectricProjectileState state;
+		state.mBoard = theBoard;
+		state.mElectric = true;
+		state.mHitZombieIDs.reserve(hitCount);
+		for (uint32_t j = 0; j < hitCount; ++j)
+		{
+			uint32_t hit;
+			if (!read(hit) || !ValidElectricGenerationID(hit, theBoard->mZombies.mMaxSize) ||
+				!state.mHitZombieIDs.insert(hit).second)
+				return false;
+		}
+		pending.emplace(projectile, std::move(state));
+	}
+	if (position != theData.size()) // reject trailing bytes, too
+		return false;
+
+	// Parsing/validation has no side effects. Prepare the replacement map before
+	// touching this Board, also preserving every other Board's current sidecars.
+	auto replacement = gElectricProjectiles;
+	std::erase_if(replacement, [theBoard](const auto& entry) {
+		return entry.second.mBoard == theBoard;
+	});
+	for (const auto& [projectile, state] : pending)
+		replacement.emplace(projectile, state);
+	gElectricProjectiles.swap(replacement);
+	// SetElectric normally strips an accidental snow type/trail. Reuse that API
+	// only for validated electric records, then import the lifetime hit set.
+	// Ordinary projectiles omitted from the payload are never type-converted.
+	for (auto& [projectile, state] : pending)
+	{
+		// The new map already owns storage; temporarily clear only its flag so
+		// SetElectric performs its usual normalization without a map allocation.
+		gElectricProjectiles.at(projectile).mElectric = false;
+		projectile->SetElectric();
+		gElectricProjectiles.at(projectile).mHitZombieIDs.swap(state.mHitZombieIDs);
+	}
+	return true;
 }
 
 constinit const ProjectileDefinition gProjectileDefinition[] = {
@@ -352,7 +504,13 @@ Zombie* Projectile::FindCollisionTarget()
 			continue;
 		if ((aZombie->mZombieType == ZombieType::ZOMBIE_BOSS || aZombie->mRow == mRow) && aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
 		{
-			if (aZombie->mZombiePhase == ZombiePhase::PHASE_SNORKEL_WALKING_IN_POOL && mPosZ <= 45.0f)
+			// Submerged-capable electricity must be able to start a chain on a
+			// snorkel, not just reach it indirectly from a surface zombie.
+			const bool aElectricSubmerged = anElectricState &&
+				(static_cast<unsigned int>(mDamageRangeFlags) &
+				 (1U << static_cast<unsigned int>(DamageRangeFlags::DAMAGES_SUBMERGED)));
+			if (aZombie->mZombiePhase == ZombiePhase::PHASE_SNORKEL_WALKING_IN_POOL && mPosZ <= 45.0f &&
+				!aElectricSubmerged)
 			{
 				continue;
 			}
@@ -418,7 +576,9 @@ void Projectile::CheckForCollision()
 		return;
 	}
 
-	if ((mProjectileType == ProjectileType::PROJECTILE_PEA || mProjectileType == ProjectileType::PROJECTILE_STAR) && mShadowY - mPosY > 90.0f)
+	// Floating electric shots use damage-range flags, not the old ballistic
+	// head-to-ground threshold (which changes as their shadow crosses a roof).
+	if (!IsElectric() && (mProjectileType == ProjectileType::PROJECTILE_PEA || mProjectileType == ProjectileType::PROJECTILE_STAR) && mShadowY - mPosY > 90.0f)
 	{
 		return;
 	}
@@ -458,6 +618,11 @@ void Projectile::CheckForCollision()
 
 bool Projectile::CantHitHighGround()
 {
+	// Electricity floats through raised terrain; ordinary peas retain their
+	// original height restrictions and roof collisions.
+	if (IsElectric())
+		return false;
+
 	if (mMotionType == ProjectileMotion::MOTION_BACKWARDS || mMotionType == ProjectileMotion::MOTION_HOMING)
 		return false;
 
@@ -472,6 +637,12 @@ bool Projectile::CantHitHighGround()
 
 void Projectile::CheckForHighGround()
 {
+	// UpdateMotion changes the shadow's roof height while a non-lobbed head
+	// flies ballistically. Do not destroy a hovering electric pea when the
+	// rising roof reduces that separation below the ordinary pea threshold.
+	if (IsElectric())
+		return;
+
 	float aShadowDelta = mShadowY - mPosY;
 
 	if (mProjectileType == ProjectileType::PROJECTILE_PEA ||
@@ -792,11 +963,24 @@ void Projectile::UpdateNormalMotion()
 	}
 	else if (mMotionType == ProjectileMotion::MOTION_STAR)
 	{
+		const float aPreviousX = mPosX;
 		mPosY += mVelY;
 		mPosX += mVelX;
 		mShadowY += mVelY;
 
-		if (mVelY != 0.0f)
+		if (IsElectric())
+		{
+			// Initialize anchors shadow at GridToPixelY(row)+67, while the
+			// pea head can already be above that row (notably the fan). Use
+			// its ground projection for row filtering, including horizontal
+			// rays. UpdateMotion applies this roof slope to shadow afterwards;
+			// include it now so collision in this tick sees the correct row.
+			const float aSlope = mBoard->GetPosYBasedOnRow(mPosX, mRow) -
+				mBoard->GetPosYBasedOnRow(aPreviousX, mRow);
+			mRow = mBoard->PixelToGridYKeepOnBoard(static_cast<int>(mPosX),
+				static_cast<int>(mShadowY + aSlope));
+		}
+		else if (mVelY != 0.0f)
 		{
 			mRow = mBoard->PixelToGridYKeepOnBoard(mPosX, mPosY);
 		}

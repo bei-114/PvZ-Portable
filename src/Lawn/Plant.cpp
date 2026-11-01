@@ -31,6 +31,7 @@
 #include "SeedPacket.h"
 #include "../LawnApp.h"
 #include "PvzpLib/PvzpMod.h"
+#include "PvzpLib/PvzpPlantFood.h"
 #include "CursorObject.h"
 #include "../GameConstants.h"
 #include "System/PlayerInfo.h"
@@ -488,6 +489,8 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 		break;
 	}
 
+	// Gameplay defaults first, mode-specific scaling second, explicit mod last.
+	mPlantHealth = PvzpPlantFood::DefaultHealth(theSeedType, mPlantHealth);
 	if ((mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BIG_TIME) &&
 		(theSeedType == SeedType::SEED_WALLNUT || theSeedType == SeedType::SEED_SUNFLOWER || theSeedType == SeedType::SEED_MARIGOLD))
 	{
@@ -4723,22 +4726,6 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
 		}
 	}
 
-	// Plant food: a boosted shooter fires a triple burst while its charge lasts.
-	if (mSubclass == PlantSubClass::SUBCLASS_SHOOTER &&
-		mBoard->IsPlantBoosted(mBoard->mPlants.DataArrayGetID(this)))
-	{
-		for (int i = 0; i < 2; ++i)
-		{
-			Projectile* aExtra = mBoard->AddProjectile(aOriginX + 6, aOriginY + i * 6 - 3,
-				mRenderOrder - 1, theRow, aProjectileType);
-			if (!aExtra)
-				continue;
-			aExtra->mDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
-			if (mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
-				aExtra->SetElectric();
-		}
-	}
-
 	if (mSeedType == SeedType::SEED_CABBAGEPULT || mSeedType == SeedType::SEED_KERNELPULT ||
 		mSeedType == SeedType::SEED_MELONPULT || mSeedType == SeedType::SEED_WINTERMELON)
 	{
@@ -4826,6 +4813,10 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
 		aProjectile->mCobTargetX = mTargetX - 40;
 		aProjectile->mCobTargetRow = mBoard->PixelToGridYKeepOnBoard(mTargetX, mTargetY);
 	}
+
+	// Skills may only duplicate shots after lob, homing, row and reverse-motion
+	// initialization is complete. Fume/gloom/star skills use finite own pulses.
+	PvzpPlantFood::AfterFire(this, aProjectile, theTargetZombie, thePlantWeapon);
 }
 
 Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon)
@@ -5037,6 +5028,7 @@ const PlantDefinition& GetPlantDefinition(SeedType theSeedType)
 		for (int i = 0; i < static_cast<int>(SeedType::NUM_SEED_TYPES); i++)
 		{
 			aModdedDefs[i] = gPlantDefs[i];
+			PvzpPlantFood::ApplyDefaultBalance(aModdedDefs[i]);
 			const char* aName = aModdedDefs[i].mPlantName;
 			aModdedDefs[i].mSeedCost = PvzpMod::PlantInt(aName, "cost", aModdedDefs[i].mSeedCost);
 			aModdedDefs[i].mRefreshTime = PvzpMod::PlantInt(aName, "refresh", aModdedDefs[i].mRefreshTime);

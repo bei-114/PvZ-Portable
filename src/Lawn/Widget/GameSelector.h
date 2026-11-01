@@ -85,6 +85,7 @@ public:
 	NewLawnButton*              mAchievementsButton;        //+0xC4
 	Widget*                     mOverlayWidget;
 	bool                        mStartingGame;
+	int                         mModTestLevel = 1;
 	int                         mStartingGameCounter;
 	bool                        mMinigamesLocked;
 	bool                        mPuzzleLocked;

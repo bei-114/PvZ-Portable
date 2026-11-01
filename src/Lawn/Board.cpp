@@ -40,6 +40,9 @@
 #include "Widget/ChallengeScreen.h"
 #include "../PvzpLib/PvzpDebug.h"
 #include "../PvzpLib/PvzpMod.h"
+#include "../PvzpLib/PvzpModTools.h"
+#include "../PvzpLib/PvzpPlantFood.h"
+#include "../PvzpLib/PvzpModUI.h"
 #include "../PvzpLib/PvzpFoley.h"
 #include "Widget/SeedChooserScreen.h"
 #include "../PvzpLib/Attachment.h"
@@ -74,6 +77,7 @@ constexpr const int FLAG_RAISE_TIME = 100;
 // Opt-in deterministic in-engine regression; never operates on a player's save
 // unless explicitly launched with PVZP_ELECTRIC_TEST in a separate test HOME.
 void PvzpRunElectricRegression(Board* theBoard);
+void PvzpRunGameplayRegression(Board* theBoard);
 #endif
 
 bool gShownMoreSunTutorial = false;
@@ -82,6 +86,7 @@ Board::Board(LawnApp* theApp)
 {
 	mApp = theApp;
 	mApp->mBoard = this;
+	ResetModGameplay();
 
 	mZombies.DataArrayInitialize(1024U, "zombies");
 	mPlants.DataArrayInitialize(1024U, "plants");
@@ -244,7 +249,10 @@ Board::Board(LawnApp* theApp)
 	}
 }
 
-Board::~Board() = default;
+Board::~Board()
+{
+	ResetModGameplay();
+}
 
 void BoardInitForPlayer()
 {
@@ -2196,22 +2204,18 @@ void Board::GetPlantsOnLawn(int theGridX, int theGridY, PlantsOnLawn* thePlantOn
 
 		if (Plant::IsFlying(aSeedType))
 		{
-			PVZP_ASSERT(!thePlantOnLawn->mFlyingPlant);
 			thePlantOnLawn->mFlyingPlant = aPlant;
 		}
 		else if (aSeedType == SeedType::SEED_FLOWERPOT || (aSeedType == SeedType::SEED_LILYPAD && mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN))
 		{
-			PVZP_ASSERT(!thePlantOnLawn->mUnderPlant);
 			thePlantOnLawn->mUnderPlant = aPlant;
 		}
 		else if (aSeedType == SeedType::SEED_PUMPKINSHELL)
 		{
-			PVZP_ASSERT(!thePlantOnLawn->mPumpkinPlant);
 			thePlantOnLawn->mPumpkinPlant = aPlant;
 		}
 		else
 		{
-			PVZP_ASSERT(!thePlantOnLawn->mNormalPlant);
 			thePlantOnLawn->mNormalPlant = aPlant;
 		}
 	}
@@ -3020,6 +3024,7 @@ void Board::MouseMove(int x, int y)
 
 void Board::MouseDrag(int x, int y)
 {
+	if (PvzpModTools::MouseDrag(this,x,y))return;
 	Widget::MouseDrag(x, y);
 	mChallenge->MouseMove(x, y);
 }
@@ -4375,6 +4380,16 @@ void Board::PickUpTool(GameObjectType theObjectType)
 void Board::MouseDown(int x, int y, int theClickCount)
 {
 	UpdateMousePosition();
+	if (theClickCount < 0 && (PvzpModTools::IsActive(this) || mPlantFoodSelecting || mDbgPlantPending))
+	{
+		PvzpModTools::Cancel(this);mPlantFoodSelecting=false;mDbgPlantPending=false;
+		mDbgConsumeMouseUp=true;ClearCursor();return;
+	}
+	if (theClickCount > 0 && CanUseModTools() && PvzpModTools::GetGloveRect(this).Contains(x,y))
+	{
+		mPlantFoodSelecting=false;mDbgPlantPending=false;mDbgOpen=false;
+		PvzpModTools::MouseDown(this,x,y);return;
+	}
 	if (theClickCount > 0 && PlantFoodMouseDown(x, y))
 	{
 		mDbgConsumeMouseUp = true;
@@ -4387,6 +4402,8 @@ void Board::MouseDown(int x, int y, int theClickCount)
 		mDbgConsumeMouseUp = true;
 		return;
 	}
+	if (theClickCount > 0 && PvzpModTools::MouseDown(this,x,y))
+		return;
 	if (theClickCount > 0 && !mDbgOpen && !mDbgPlantPending &&
 		!mPaused && mTimeStopCounter == 0 && mBoardFadeOutCounter < 0 &&
 		mApp->mGameScene == GameScenes::SCENE_PLAYING && mApp->GetDialogCount() == 0 &&
@@ -4623,6 +4640,10 @@ bool Board::CanInteractWithBoardButtons()
 
 void Board::MouseUp(int x, int y, int theClickCount)
 {
+	if (PvzpModTools::MouseUp(this,x,y))
+	{
+		mDbgConsumeMouseUp=false;mIgnoreMouseUp=false;return;
+	}
 	Widget::MouseUp(x, y, theClickCount);
 	if (mDbgConsumeMouseUp)
 	{
@@ -4700,6 +4721,10 @@ void Board::Pause(bool thePause)
 		return;
 
 	mPaused = thePause;
+	if (thePause)
+	{
+		PvzpModTools::Cancel(this);mPlantFoodSelecting=false;mDbgPlantPending=false;mDbgOpen=false;
+	}
 	if (thePause && mApp->mPlayerInfo->mCoins > 0)
 	{
 		ShowCoinBank();
@@ -5748,43 +5773,6 @@ void Board::Update()
 
 	mBoardUpdateCounter++;
 
-	// Electric gatling ultimate: sustained fan volleys.
-	if (mFanVolleys > 0)
-	{
-		Plant* aFanPlant = mFanPlantID == 0xFFFFFFFFU ? nullptr : mPlants.DataArrayTryToGet(mFanPlantID);
-		if (!aFanPlant || aFanPlant->mDead)
-		{
-			mFanVolleys = 0;
-		}
-		else if (mFanTicks-- <= 0)
-		{
-			SpawnElectricFanVolley(aFanPlant);
-			--mFanVolleys;
-			mFanTicks = 12;
-		}
-	}
-
-	// Plant food charge: starts at one, refills every 30 s (100 Hz updates), cap 3.
-	if (mPlantFoodCount < 3)
-	{
-		if (++mPlantFoodTimer >= 3000)
-		{
-			mPlantFoodTimer = 0;
-			++mPlantFoodCount;
-		}
-	}
-	else
-		mPlantFoodTimer = 0;
-
-	for (auto anIter = mPlantBoosts.begin(); anIter != mPlantBoosts.end(); )
-	{
-		if (--anIter->second <= 0)
-			anIter = mPlantBoosts.erase(anIter);
-		else
-			++anIter;
-	}
-
-
 	mCutScene->Update();
 	UpdateMousePosition();
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
@@ -5870,7 +5858,11 @@ void Board::Update()
 #ifndef __ANDROID__
 	if (std::getenv("PVZP_ELECTRIC_TEST"))
 		PvzpRunElectricRegression(this);
+	if (std::getenv("PVZP_GAMEPLAY_TEST"))
+		PvzpRunGameplayRegression(this);
 #endif
+	if (CanUseModTools())
+		UpdateModGameplay();
 	UpdateGridItems();
 	UpdateFwoosh();
 	UpdateGame();
@@ -7560,307 +7552,6 @@ void Board::Draw(Graphics* g)
 	DrawDbgPanel(g);
 }
 
-
-void Board::DrawDbgPanel(Graphics* g)
-{
-	g->SetColor(Sexy::Color(20, 20, 30, 200));
-	g->FillRect(600, 2, 76, 22);
-	PvzpDrawString(g, "DBG", 638, 18, Sexy::FONT_DWARVENTODCRAFT12, Sexy::Color(255, 230, 120), DrawStringJustification::DS_ALIGN_CENTER);
-	if (mDbgPlantPending)
-	{
-		g->SetColor(Sexy::Color(12, 30, 55, 230));
-		g->FillRect(160, 72, 480, 32);
-		PvzpDrawString(g, "E-GATL: TAP EMPTY LAWN / DBG TO CANCEL", 400, 94,
-			Sexy::FONT_DWARVENTODCRAFT12, Sexy::Color(100, 235, 255), DrawStringJustification::DS_ALIGN_CENTER);
-	}
-	if (!mDbgOpen)
-		return;
-
-	g->SetColor(Sexy::Color(20, 20, 30, 220));
-	g->FillRect(440, 26, 228, 380);
-	const char* aLabels[10] = {"SUN +1000", "SUN MAX", "KILL ALL", "SLOW ALL", "PLANT E-GATL", "NEXT WAVE", "NEXT LVL", "UNLOCK ALL", "SPAWN ZOMBIE", "SPAWN 5 ZOMBIES"};
-	for (int i = 0; i < 10; i++)
-	{
-		int aY = 30 + i * 37;
-		g->SetColor(Sexy::Color(45, 45, 70, 235));
-		g->FillRect(444, aY, 220, 32);
-		PvzpDrawString(g, aLabels[i], 554, aY + 22, Sexy::FONT_DWARVENTODCRAFT12, Sexy::Color(255, 230, 120), DrawStringJustification::DS_ALIGN_CENTER);
-	}
-}
-
-void Board::FireElectricFan(Plant* thePlant)
-{
-	// A sustained barrage rather than a single frame: volleys are emitted by
-	// Board::Update over ~1.2 seconds, so the fan is visible even on slow frames.
-	mFanPlantID = mPlants.DataArrayGetID(thePlant);
-	mFanVolleys = 9;
-	mFanTicks = 12;
-	SpawnElectricFanVolley(thePlant); // first volley on the click frame
-	if (std::getenv("PVZP_ELECTRIC_TRACE"))
-		SDL_Log("ELECTRIC fan start tick=%d col=%d row=%d", mMainCounter, thePlant->mPlantCol, thePlant->mRow);
-}
-
-void Board::SpawnElectricFanVolley(Plant* thePlant)
-{
-	int aOffsetX, aOffsetY;
-	thePlant->GetPeaHeadOffset(aOffsetX, aOffsetY);
-	const int aX = thePlant->mX + aOffsetX + 34;
-	const int aY = thePlant->mY + aOffsetY - 33 - (GetFlowerPotAt(thePlant->mPlantCol, thePlant->mRow) ? 5 : 0);
-	// Ground + flying + submerged + off-ground: the fan hits balloons and
-	// diving/snorkel zombies, not just walkers on the lawn.
-	constexpr unsigned int aFanDamages = (1U << 0) | (1U << 1) | (1U << 2) | (1U << 4);
-	for (int ray = -4; ray <= 4; ++ray)
-	{
-		const float aAngle = DEG_TO_RAD(ray * 9.0f);
-		Projectile* aProjectile = AddProjectile(aX, aY,
-			thePlant->mRenderOrder - 1, thePlant->mRow, ProjectileType::PROJECTILE_PEA);
-		if (!aProjectile)
-			continue;
-		aProjectile->mDamageRangeFlags = aFanDamages;
-		aProjectile->mMotionType = ProjectileMotion::MOTION_STAR;
-		aProjectile->mVelX = cos(aAngle) * 5.0f;
-		aProjectile->mVelY = sin(aAngle) * 5.0f;
-		aProjectile->SetElectric();
-	}
-	mApp->PlayFoley(FoleyType::FOLEY_THROW);
-}
-
-Rect Board::GetPlantFoodRect()
-{
-	// Directly beneath the seed bank; drawn by the board so it works on every
-	// platform without adding a new widget or image asset.
-	return Rect(88, 96, 46, 46);
-}
-
-bool Board::IsPlantBoosted(uint32_t thePlantID)
-{
-	auto anIter = mPlantBoosts.find(thePlantID);
-	return anIter != mPlantBoosts.end() && anIter->second > 0;
-}
-
-bool Board::PlantFoodMouseDown(int x, int y)
-{
-	const Rect aRect = GetPlantFoodRect();
-	if (mPlantFoodSelecting)
-	{
-		const int aCol = PixelToGridX(x, y);
-		const int aRow = PixelToGridY(x, y);
-		Plant* aPlant = GetTopPlantAt(aCol, aRow, PlantPriority::TOPPLANT_ANY);
-		if (aPlant && !aPlant->mDead)
-		{
-			ApplyPlantFood(aPlant);
-			--mPlantFoodCount;
-			mPlantFoodSelecting = false;
-			return true;
-		}
-		if (!aRect.Contains(x, y))
-			mPlantFoodSelecting = false;
-	}
-	if (aRect.Contains(x, y))
-	{
-		if (mPlantFoodCount > 0)
-		{
-			mPlantFoodSelecting = !mPlantFoodSelecting;
-			mApp->PlaySample(Sexy::SOUND_TAP);
-			SDL_Log("PLANTFOOD toggle selecting=%d count=%d", mPlantFoodSelecting ? 1 : 0, mPlantFoodCount);
-		}
-		else
-			mApp->PlaySample(Sexy::SOUND_BUZZER);
-		return true;
-	}
-	return false;
-}
-
-void Board::ApplyPlantFood(Plant* thePlant)
-{
-	const uint32_t anID = mPlants.DataArrayGetID(thePlant);
-	mApp->PlayFoley(FoleyType::FOLEY_PLANT);
-	SDL_Log("PLANTFOOD apply seed=%d col=%d row=%d shooter=%d", (int)thePlant->mSeedType,
-		thePlant->mPlantCol, thePlant->mRow, thePlant->mSubclass == PlantSubClass::SUBCLASS_SHOOTER);
-
-	if (thePlant->mSubclass == PlantSubClass::SUBCLASS_SHOOTER)
-	{
-		mPlantBoosts[anID] = 900; // 9 seconds of boosted fire
-		return;
-	}
-	if (thePlant->MakesSun())
-	{
-		AddSunMoney(150);
-		return;
-	}
-	switch (thePlant->mSeedType)
-	{
-	case SeedType::SEED_CHERRYBOMB:
-	case SeedType::SEED_JALAPENO:
-	case SeedType::SEED_ICESHROOM:
-	case SeedType::SEED_DOOMSHROOM:
-	case SeedType::SEED_POTATOMINE:
-	case SeedType::SEED_SQUASH:
-	{
-		const int aX = thePlant->mX + 40;
-		for (Zombie* aZombie : mZombies)
-		{
-			if (!aZombie || aZombie->mDead)
-				continue;
-			Rect aRect = aZombie->GetZombieRect();
-			if (std::abs(aRect.mX + aRect.mWidth / 2 - aX) > 220)
-				continue;
-			if (std::abs(aZombie->mRow - thePlant->mRow) > 2)
-				continue;
-			aZombie->TakeDamage(500, 0);
-		}
-		break;
-	}
-	case SeedType::SEED_WALLNUT:
-	case SeedType::SEED_TALLNUT:
-	case SeedType::SEED_PUMPKINSHELL:
-		thePlant->mPlantMaxHealth *= 2;
-		thePlant->mPlantHealth = thePlant->mPlantMaxHealth;
-		break;
-	default:
-	{
-		int aHits = 0;
-		for (Zombie* aZombie : mZombies)
-		{
-			if (!aZombie || aZombie->mDead || aZombie->mRow != thePlant->mRow)
-				continue;
-			aZombie->TakeDamage(200, 0);
-			if (++aHits >= 3)
-				break;
-		}
-		break;
-	}
-	}
-}
-
-void Board::DrawPlantFood(Graphics* g)
-{
-	if (mApp->mGameScene != GameScenes::SCENE_PLAYING)
-		return;
-	const Rect aRect = GetPlantFoodRect();
-	g->SetColor(Sexy::Color(10, 20, 14, 210));
-	g->FillRect(aRect.mX - 2, aRect.mY - 2, aRect.mWidth + 4, aRect.mHeight + 20);
-	if (mPlantFoodCount > 0)
-	{
-		g->SetColor(Sexy::Color(70, 200, 90, 255));
-		g->FillRect(aRect.mX + 6, aRect.mY + 6, aRect.mWidth - 12, aRect.mHeight - 12);
-		g->SetColor(Sexy::Color(190, 255, 170, 255));
-		g->FillRect(aRect.mX + 10, aRect.mY + 10, 10, 10);
-	}
-	else
-	{
-		g->SetColor(Sexy::Color(55, 55, 55, 210));
-		g->FillRect(aRect.mX + 6, aRect.mY + 6, aRect.mWidth - 12, aRect.mHeight - 12);
-	}
-	const int aBarY = aRect.mY + aRect.mHeight + 2;
-	g->SetColor(Sexy::Color(25, 25, 25, 230));
-	g->FillRect(aRect.mX, aBarY, aRect.mWidth, 6);
-	if (mPlantFoodCount < 3)
-	{
-		g->SetColor(Sexy::Color(120, 220, 120, 240));
-		g->FillRect(aRect.mX, aBarY, aRect.mWidth * mPlantFoodTimer / 3000, 6);
-	}
-	char aText[16];
-	snprintf(aText, sizeof(aText), "x%d", mPlantFoodCount);
-	PvzpDrawString(g, aText, aRect.mX + aRect.mWidth / 2, aRect.mY + aRect.mHeight + 18,
-		Sexy::FONT_DWARVENTODCRAFT12, Sexy::Color(220, 255, 220), DrawStringJustification::DS_ALIGN_CENTER);
-	if (mPlantFoodSelecting)
-	{
-		PvzpDrawString(g, "PICK A PLANT", 200, 120, Sexy::FONT_DWARVENTODCRAFT12,
-			Sexy::Color(120, 255, 140), DrawStringJustification::DS_ALIGN_CENTER);
-	}
-}
-
-bool Board::DbgMouseDown(int x, int y)
-{
-	if (mPaused || mTimeStopCounter > 0 || mBoardFadeOutCounter >= 0 ||
-		mApp->mGameScene != GameScenes::SCENE_PLAYING || mApp->GetDialogCount() > 0)
-		return false;
-	if (x >= 600 && x < 676 && y >= 2 && y < 26)
-	{
-		if (mDbgPlantPending)
-			mDbgPlantPending = false;
-		else
-			mDbgOpen = !mDbgOpen;
-		return true;
-	}
-	if (mDbgPlantPending)
-	{
-		const int aCol = PixelToGridX(x, y);
-		const int aRow = PixelToGridY(x, y);
-		if (aCol >= 0 && aCol < MAX_GRID_SIZE_X && aRow >= 0 && aRow < MAX_GRID_SIZE_Y)
-		{
-			// Debug tool: plant anywhere; stacking on an occupied cell is allowed
-			// so any lane can be tested without clearing the lawn first.
-			AddPlant(aCol, aRow, SeedType::SEED_ELECTRIC_GATLINGPEA);
-			mDbgPlantPending = false;
-		}
-		else
-			mApp->PlaySample(Sexy::SOUND_BUZZER);
-		return true;
-	}
-	if (!mDbgOpen || x < 444 || x > 664)
-		return false;
-
-	for (int i = 0; i < 10; i++)
-	{
-		int aY = 30 + i * 37;
-		if (y < aY || y > aY + 32)
-			continue;
-		switch (i)
-		{
-		case 0:
-			AddSunMoney(1000);
-			break;
-		case 1:
-			AddSunMoney(9990);
-			break;
-		case 2:
-			for (Zombie* aZombie : mZombies)
-			{
-				if (aZombie && !aZombie->mDead)
-					aZombie->DieWithLoot();
-			}
-			break;
-		case 3:
-			for (Zombie* aZombie : mZombies)
-			{
-				if (aZombie && !aZombie->mDead)
-					aZombie->mChilledCounter = 300;
-			}
-			break;
-		case 4:
-			ClearCursor();
-			mDbgPlantPending = true;
-			mDbgOpen = false;
-			break;
-		case 5:
-			mZombieCountDown = 1;
-			if (mHugeWaveCountDown > 0)
-				mHugeWaveCountDown = 1;
-			break;
-		case 6:
-			// Defer the normal end-of-level transition to LawnApp::CheckForGameEnd.
-			// StartPlaying only changes the scene; it does not create a new board.
-			mLevelComplete = true;
-			mDbgOpen = false;
-			break;
-		case 7:
-			if (mApp->mPlayerInfo)
-				mApp->mPlayerInfo->SetLevel(50);
-			break;
-		case 8:
-			AddZombieInRow(ZombieType::ZOMBIE_NORMAL, 2, Zombie::ZOMBIE_WAVE_DEBUG);
-			break;
-		case 9:
-			for (int aRow = 0; aRow < 5; ++aRow)
-				AddZombieInRow(ZombieType::ZOMBIE_NORMAL, aRow, Zombie::ZOMBIE_WAVE_DEBUG);
-			break;
-		}
-		return true;
-	}
-	return false;
-}
 
 void Board::SetMustacheMode(bool theEnableMustache)
 {

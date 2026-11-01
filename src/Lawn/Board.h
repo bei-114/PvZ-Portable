@@ -24,7 +24,7 @@
 
 #include <cstdint>
 #include <memory>
-#include <unordered_map>
+
 
 #include "../ConstEnums.h"
 #include "../PvzpLib/DataArray.h"
@@ -303,7 +303,9 @@ public:
 	int                             mPlantFoodCount = 1;
 	int                             mPlantFoodTimer = 0;
 	bool                            mPlantFoodSelecting = false;
-	std::unordered_map<uint32_t, int> mPlantBoosts;
+	void                            UpdateModGameplay();
+	void                            ResetModGameplay();
+	bool                            CanUseModTools() const;
 	Rect                            GetPlantFoodRect();
 	void                            DrawPlantFood(Graphics* g);
 	bool                            PlantFoodMouseDown(int x, int y);

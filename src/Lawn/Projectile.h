@@ -23,6 +23,7 @@
 #define __PROJECTILE_H__
 
 #include <cstdint>
+#include <vector>
 #include "../ConstEnums.h"
 #include "GameObject.h"
 
@@ -113,5 +114,13 @@ private:
 	void                    DrawElectric(Graphics* g);
 
 };
+
+// Portable electric sidecar extension, independent of Projectile's binary layout.
+// Empty Save result means invalid/over-limit state. A valid empty set still has
+// a versioned header. Load validates everything before replacing this Board's
+// sidecars; an invalid payload leaves the current state untouched.
+std::vector<uint8_t> SaveElectricProjectiles(Board* theBoard);
+bool LoadElectricProjectiles(Board* theBoard, const std::vector<uint8_t>& theData);
+void ResetElectricProjectiles(Board* theBoard);
 
 #endif
