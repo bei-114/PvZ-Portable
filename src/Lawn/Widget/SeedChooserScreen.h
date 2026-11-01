@@ -92,6 +92,11 @@ public:
 	int                     mLastMouseY;
 	SeedChooserState        mChooseState;
 	int                     mViewLawnTime;
+	int                     mChooserPage = 0;
+	static bool             IsModSeed(SeedType theSeedType);
+	bool                    ChooserHasSeed(SeedType theSeedType) const;
+	bool                    OnChooserPage(SeedType theSeedType) const;
+	Rect                    GetPageButtonRect() const;
 
 public:
 	SeedChooserScreen();

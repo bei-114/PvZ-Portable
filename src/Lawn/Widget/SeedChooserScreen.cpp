@@ -332,6 +332,22 @@ bool SeedChooserScreen::SeedNotAllowedDuringTrial(SeedType theSeedType)
 	return mApp->IsTrialStageLocked() && (theSeedType == SEED_SQUASH || theSeedType == SEED_THREEPEATER);
 }
 
+bool SeedChooserScreen::IsModSeed(SeedType theSeedType)
+{
+	return theSeedType >= SEED_GATLINGPEA && theSeedType < SEED_IMITATER;
+}
+bool SeedChooserScreen::ChooserHasSeed(SeedType theSeedType) const
+{
+	return mApp->HasSeedType(theSeedType) || IsModSeed(theSeedType);
+}
+bool SeedChooserScreen::OnChooserPage(SeedType theSeedType) const
+{
+	return IsModSeed(theSeedType) ? mChooserPage == 1 : mChooserPage == 0;
+}
+Rect SeedChooserScreen::GetPageButtonRect() const
+{
+	return Rect(300, 512, 200, 34);
+}
 void SeedChooserScreen::Draw(Graphics* g)
 {
 	if (mApp->GetDialog(DIALOG_STORE) || mApp->GetDialog(DIALOG_ALMANAC))
@@ -354,12 +370,12 @@ void SeedChooserScreen::Draw(Graphics* g)
 	{
 		int x, y;
 		GetSeedPositionInChooser(aSeedShadow, x, y);
-		if (aSeedShadow == SEED_IMITATER)
+		if (aSeedShadow == SEED_IMITATER || !OnChooserPage(aSeedShadow))
 		{
 			continue;
 		}
 
-		if (mApp->HasSeedType(aSeedShadow))
+		if (ChooserHasSeed(aSeedShadow))
 		{
 			ChosenSeed& aChosenSeed = mChosenSeeds[aSeedShadow];
 			if (aChosenSeed.mSeedState != SEED_IN_CHOOSER)
@@ -388,7 +404,7 @@ void SeedChooserScreen::Draw(Graphics* g)
 	{
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 		ChosenSeedState aSeedState = aChosenSeed.mSeedState;
-		if (mApp->HasSeedType(aSeedType) && aSeedState != SEED_FLYING_TO_BANK && aSeedState != SEED_FLYING_TO_CHOOSER &&
+		if (ChooserHasSeed(aSeedType) && OnChooserPage(aSeedType) && aSeedState != SEED_FLYING_TO_BANK && aSeedState != SEED_FLYING_TO_CHOOSER &&
 			aSeedState != SEED_PACKET_HIDDEN && (aSeedState == SEED_IN_CHOOSER || mBoard->mCutScene->mSeedChoosing))
 		{
 			bool aGrayed = false;
@@ -412,7 +428,7 @@ void SeedChooserScreen::Draw(Graphics* g)
 	{
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 		ChosenSeedState aSeedState = aChosenSeed.mSeedState;
-		if (mApp->HasSeedType(aSeedType) && (aSeedState == SEED_FLYING_TO_BANK || aSeedState == SEED_FLYING_TO_CHOOSER))
+		if (ChooserHasSeed(aSeedType) && (aSeedState == SEED_FLYING_TO_BANK || aSeedState == SEED_FLYING_TO_CHOOSER))
 		{
 			DrawSeedPacket(g, aChosenSeed.mX, aChosenSeed.mY, aChosenSeed.mSeedType, aChosenSeed.mImitaterType, 0, 255, true, false);
 		}
@@ -428,6 +444,32 @@ void SeedChooserScreen::Draw(Graphics* g)
 	aBoardFrameG.mTransY -= mY;
 	mMenuButton->Draw(&aBoardFrameG);
 	mToolTip->Draw(g);
+	{
+		Rect aPage = GetPageButtonRect();
+		g->SetColor(Color(24, 40, 28, 235));
+		g->FillRect(aPage);
+		g->SetColor(Color(126, 214, 150));
+		g->DrawRect(aPage);
+		PvzpDrawString(g, mChooserPage == 0 ? "[MOD PLANTS  >]" : "[<  NORMAL PLANTS]",
+			aPage.mX + aPage.mWidth / 2, aPage.mY + 23, Sexy::FONT_DWARVENTODCRAFT12, Color::White, DS_ALIGN_CENTER);
+		if (mChooserPage == 1)
+		{
+			PvzpDrawString(g, "MOD PAGE - GOLD FRAME", 400, 500, Sexy::FONT_DWARVENTODCRAFT12,
+				Color(255, 216, 106), DS_ALIGN_CENTER);
+			for (SeedType aSeed = SEED_GATLINGPEA; aSeed < SEED_IMITATER; aSeed = (SeedType)(aSeed + 1))
+			{
+				int px, py;
+				GetSeedPositionInChooser(aSeed, px, py);
+				g->SetColor(Color(60, 44, 8, 190));
+				g->FillRect(px - 2, py - 2, SEED_PACKET_WIDTH + 4, 3);
+				g->FillRect(px - 2, py + SEED_PACKET_HEIGHT - 1, SEED_PACKET_WIDTH + 4, 3);
+				g->SetColor(Color(214, 168, 60, 210));
+				g->FillRect(px - 2, py, 3, SEED_PACKET_HEIGHT);
+				g->FillRect(px + SEED_PACKET_WIDTH - 1, py, 3, SEED_PACKET_HEIGHT);
+			}
+		}
+	}
+
 }
 
 void SeedChooserScreen::UpdateViewLawn()
@@ -770,7 +812,7 @@ SeedType SeedChooserScreen::SeedHitTest(int x, int y)
 		for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
 		{
 			ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
-			if (!mApp->HasSeedType(aSeedType) || aChosenSeed.mSeedState == SEED_PACKET_HIDDEN) continue;
+			if (!ChooserHasSeed(aSeedType) || !OnChooserPage(aSeedType) || aChosenSeed.mSeedState == SEED_PACKET_HIDDEN) continue;
 			if (Rect(aChosenSeed.mX, aChosenSeed.mY, SEED_PACKET_WIDTH, SEED_PACKET_HEIGHT).Contains(x, y)) return aSeedType;
 		}
 	}
@@ -781,7 +823,7 @@ SeedType SeedChooserScreen::FindSeedInBank(int theIndexInBank)
 {
 	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
 	{
-		if (mApp->HasSeedType(aSeedType))
+		if (ChooserHasSeed(aSeedType))
 		{
 			ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 			if (aChosenSeed.mSeedState == SEED_IN_BANK && aChosenSeed.mSeedIndexInBank == theIndexInBank) return aSeedType;
@@ -976,6 +1018,17 @@ void SeedChooserScreen::UpdateImitaterButton()
 void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 {
 	Widget::MouseDown(x, y, theClickCount);
+
+	if (GetPageButtonRect().Contains(x, y))
+	{
+		if (mSeedsInFlight <= 0)
+		{
+			mChooserPage = mChooserPage == 0 ? 1 : 0;
+			mApp->PlaySample(Sexy::SOUND_TAP);
+			RemoveToolTip();
+		}
+		return;
+	}
 
 	if (mSeedsInFlight > 0)
 	{
