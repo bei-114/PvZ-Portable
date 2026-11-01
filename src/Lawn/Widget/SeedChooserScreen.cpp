@@ -182,12 +182,14 @@ SeedChooserScreen::SeedChooserScreen()
 	{
 		ChosenSeed& aChosenSeed = mChosenSeeds[aCustom];
 		aChosenSeed.mSeedType = aCustom;
-		aChosenSeed.mX = 0;
-		aChosenSeed.mY = 0;
-		aChosenSeed.mStartX = 0;
-		aChosenSeed.mStartY = 0;
-		aChosenSeed.mEndX = 0;
-		aChosenSeed.mEndY = 0;
+		int aX = 0, aY = 0;
+		GetSeedPositionInChooser(aCustom, aX, aY);
+		aChosenSeed.mX = aX;
+		aChosenSeed.mY = aY;
+		aChosenSeed.mStartX = aX;
+		aChosenSeed.mStartY = aY;
+		aChosenSeed.mEndX = aX;
+		aChosenSeed.mEndY = aY;
 		aChosenSeed.mSeedState = SEED_IN_CHOOSER;
 		aChosenSeed.mSeedIndexInBank = 0;
 		aChosenSeed.mRefreshCounter = 0;
@@ -534,7 +536,7 @@ void SeedChooserScreen::Draw(Graphics* g)
 		g->FillRect(aPage);
 		g->SetColor(Color(126, 214, 150));
 		g->DrawRect(aPage);
-		PvzpDrawString(g, mChooserPage == 0 ? "[MOD PLANTS  >]" : "[<  NORMAL PLANTS]",
+		PvzpDrawString(g, mChooserPage == 0 ? "MOD PLANTS  >" : "<  NORMAL PLANTS",
 			aPage.mX + aPage.mWidth / 2, aPage.mY + 23, Sexy::FONT_DWARVENTODCRAFT12, Color::White, DS_ALIGN_CENTER);
 	}
 
@@ -877,10 +879,12 @@ SeedType SeedChooserScreen::SeedHitTest(int x, int y)
 {
 	if (mMouseVisible)
 	{
-		for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
+		for (int aIdx = 0; aIdx < int(NUM_SEED_TYPES); ++aIdx)
 		{
-			ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
+			SeedType aSeedType = static_cast<SeedType>(aIdx);
 			const bool aCustom = aSeedType >= SEED_CUSTOM_0 && aSeedType <= SEED_CUSTOM_3;
+			if (aIdx >= int(NUM_SEEDS_IN_CHOOSER) && !aCustom) continue;
+			ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 			if (aCustom != (mChooserPage == 1)) continue;
 			if (!mApp->HasSeedType(aSeedType) && !aCustom) continue;
 			if (aChosenSeed.mSeedState == SEED_PACKET_HIDDEN) continue;
@@ -991,6 +995,22 @@ void SeedChooserScreen::ShowToolTip()
 			{
 				RemoveToolTip();
 				ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
+				if (aSeedType >= SEED_CUSTOM_0 && aSeedType <= SEED_CUSTOM_3)
+				{
+					int aSlot = int(aSeedType) - int(SEED_CUSTOM_0);
+					std::string aTitle = "MOD PLANT";
+					for (const auto& cp : PvzpMod::CustomPlants()) if (cp.slot == aSlot) aTitle = cp.name;
+					int aCX = 0, aCY = 0;
+					GetSeedPositionInChooser(aSeedType, aCX, aCY);
+					mToolTip->SetWarningText("");
+					mToolTip->SetTitle(aTitle.c_str());
+					mToolTip->SetLabel("A mod-defined plant.");
+					mToolTip->mX = std::clamp((SEED_PACKET_WIDTH - mToolTip->mWidth) / 2 + aCX, 0, BOARD_WIDTH - mToolTip->mWidth);
+					mToolTip->mY = aCY + 70;
+					mToolTip->mVisible = true;
+					mToolTipSeed = aSeedType;
+					return;
+				}
 				uint aRecFlags = SeedNotRecommendedToPick(aSeedType);
 				if (SeedNotAllowedToPick(aSeedType))
 				{
