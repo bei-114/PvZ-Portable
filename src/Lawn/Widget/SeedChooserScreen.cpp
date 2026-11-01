@@ -301,7 +301,13 @@ bool SeedChooserScreen::Has7Rows()
 
 void SeedChooserScreen::GetSeedPositionInChooser(int theIndex, int& x, int& y)
 {
-	if (theIndex == SEED_IMITATER)
+	if (theIndex >= SEED_CUSTOM_0 && theIndex <= SEED_CUSTOM_3)
+	{
+		int aSlot = int(theIndex) - int(SEED_CUSTOM_0);
+		x = aSlot * 53 + 22;
+		y = 128;
+	}
+	else if (theIndex == SEED_IMITATER)
 	{
 		x = mImitaterButton->mX;
 		y = mImitaterButton->mY;
@@ -408,30 +414,16 @@ bool SeedChooserScreen::ModPageMouseDown(int x, int y)
 }
 void SeedChooserScreen::DrawModPage(Graphics* g)
 {
-	g->SetColor(Color(20, 32, 26, 238));
-	g->FillRect(180, 168, 440, 300);
-	g->SetColor(Color(214, 172, 74));
-	g->DrawRect(180, 168, 440, 300);
-	PvzpDrawString(g, "MOD PLANTS", 400, 196, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color(255, 226, 140), DS_ALIGN_CENTER);
+	PvzpDrawString(g, "MOD PLANTS", 400, 178, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color(255, 226, 140), DS_ALIGN_CENTER);
 	for (int i = 0; i < ModPageCount(); ++i)
 	{
 		SeedType aSeed = ModPageSeed(i);
 		if (!ModSlotActive(aSeed)) continue;
-		Rect aTile = GetModTileRect(i);
+		int px = 0, py = 0;
+		GetSeedPositionInChooser(aSeed, px, py);
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeed];
-		const bool aInBank = aChosenSeed.mSeedState == SEED_IN_BANK;
-		g->SetColor(aInBank ? Color(40, 70, 46, 240) : Color(50, 42, 16, 240));
-		g->FillRect(aTile);
-		g->SetColor(Color(224, 186, 92));
-		g->DrawRect(aTile);
-		if (!aInBank)
-			DrawSeedPacket(g, static_cast<float>(aTile.mX + 8), static_cast<float>(aTile.mY + 10), aSeed, SEED_NONE, 0.0f, 255, true, true);
-		const int aSlot = int(aSeed) - int(SEED_CUSTOM_0);
-		std::string aName = "MOD PLANT";
-		for (const auto& cp : PvzpMod::CustomPlants()) if (cp.slot == aSlot) aName = cp.name;
-		if (aName.size() > 14) aName = aName.substr(0, 14);
-		PvzpDrawString(g, aName, aTile.mX + 112, aTile.mY + 48, Sexy::FONT_DWARVENTODCRAFT12,
-			aInBank ? Color(150, 200, 150) : Color(255, 232, 176), DS_ALIGN_CENTER);
+		if (aChosenSeed.mSeedState != SEED_IN_CHOOSER) continue;
+		DrawSeedPacket(g, static_cast<float>(px), static_cast<float>(py), aSeed, SEED_NONE, 0.0f, 255, true, true);
 	}
 }
 
@@ -888,7 +880,10 @@ SeedType SeedChooserScreen::SeedHitTest(int x, int y)
 		for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
 		{
 			ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
-			if (mApp->HasSeedType(aSeedType) && OnChooserPage(aSeedType) && aChosenSeed.mSeedState != SEED_PACKET_HIDDEN) ; else continue;
+			const bool aCustom = aSeedType >= SEED_CUSTOM_0 && aSeedType <= SEED_CUSTOM_3;
+			if (aCustom != (mChooserPage == 1)) continue;
+			if (!mApp->HasSeedType(aSeedType) && !aCustom) continue;
+			if (aChosenSeed.mSeedState == SEED_PACKET_HIDDEN) continue;
 			if (Rect(aChosenSeed.mX, aChosenSeed.mY, SEED_PACKET_WIDTH, SEED_PACKET_HEIGHT).Contains(x, y)) return aSeedType;
 		}
 	}
@@ -1114,8 +1109,7 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 		}
 	}
 
-	if (mChooserPage == 1 && mSeedsInFlight <= 0 && ModPageMouseDown(x, y))
-		return;
+
 
 	if (mChooseState == CHOOSE_VIEW_LAWN)
 	{
