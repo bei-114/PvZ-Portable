@@ -1088,10 +1088,6 @@ enum SeedType : int32_t
 	SEED_SPROUT,
 	SEED_LEFTPEATER,
 	SEED_ELECTRIC_GATLINGPEA,
-	SEED_CUSTOM_0,
-	SEED_CUSTOM_1,
-	SEED_CUSTOM_2,
-	SEED_CUSTOM_3,
 	NUM_SEED_TYPES,
 	SEED_BEGHOULED_BUTTON_SHUFFLE,
 	SEED_BEGHOULED_BUTTON_CRATER,
@@ -1114,6 +1110,14 @@ enum SeedType : int32_t
 	SEED_ZOMBIE_DANCER,
 	SEED_ZOMBIE_GARGANTUAR,
 	SEED_ZOMBIE_IMP,
+
+	// Mod-defined plants live past every vanilla id so adding slots never
+	// shifts an existing seed value (saves stay compatible across mods).
+	SEED_CUSTOM_0 = 200,
+	SEED_CUSTOM_1,
+	SEED_CUSTOM_2,
+	SEED_CUSTOM_3,
+	NUM_SEED_SLOTS = 204,
 	NUM_SEEDS_IN_CHOOSER = 49,
 	SEED_NONE = -1
 };

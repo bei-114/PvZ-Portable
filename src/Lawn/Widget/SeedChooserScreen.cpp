@@ -178,8 +178,9 @@ SeedChooserScreen::SeedChooserScreen()
 		aChosenSeed.mImitaterType = SEED_NONE;
 		aChosenSeed.mCrazyDavePicked = false;
 	}
-	for (int aIdx = int(NUM_SEEDS_IN_CHOOSER); aIdx < int(NUM_SEED_TYPES); ++aIdx)
+	for (int aIdx = int(NUM_SEEDS_IN_CHOOSER); aIdx < int(NUM_SEED_SLOTS); ++aIdx)
 	{
+		if (aIdx >= int(SEED_CUSTOM_0) && aIdx <= int(SEED_CUSTOM_3)) continue;
 		ChosenSeed& aHidden = mChosenSeeds[aIdx];
 		aHidden.mSeedType = static_cast<SeedType>(aIdx);
 		aHidden.mSeedState = SEED_PACKET_HIDDEN;
@@ -638,7 +639,7 @@ void SeedChooserScreen::Update()
 	mSeedChooserAge++;
 	mToolTip->Update();
 
-	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEED_TYPES; aSeedType = (SeedType)(aSeedType + 1))
+	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEED_SLOTS; aSeedType = (SeedType)(aSeedType + 1))
 	{
 		if (ChooserHasSeed(aSeedType))
 		{
@@ -832,7 +833,7 @@ void SeedChooserScreen::PickRandomSeeds()
 		aChosenSeed.mSeedIndexInBank = anIndex;
 		mSeedsInBank++;
 	}
-	for (SeedType aSeedFlying = SEED_PEASHOOTER; aSeedFlying < NUM_SEED_TYPES; aSeedFlying = (SeedType)(aSeedFlying + 1))
+	for (SeedType aSeedFlying = SEED_PEASHOOTER; aSeedFlying < NUM_SEED_SLOTS; aSeedFlying = (SeedType)(aSeedFlying + 1))
 		LandFlyingSeed(mChosenSeeds[aSeedFlying]);
 	CloseSeedChooser();
 }
@@ -885,7 +886,7 @@ SeedType SeedChooserScreen::SeedHitTest(int x, int y)
 {
 	if (mMouseVisible)
 	{
-		for (int aIdx = 0; aIdx < int(NUM_SEED_TYPES); ++aIdx)
+		for (int aIdx = 0; aIdx < int(NUM_SEED_SLOTS); ++aIdx)
 		{
 			SeedType aSeedType = static_cast<SeedType>(aIdx);
 			const bool aCustom = aSeedType >= SEED_CUSTOM_0 && aSeedType <= SEED_CUSTOM_3;
@@ -902,7 +903,7 @@ SeedType SeedChooserScreen::SeedHitTest(int x, int y)
 
 SeedType SeedChooserScreen::FindSeedInBank(int theIndexInBank)
 {
-	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEED_TYPES; aSeedType = (SeedType)(aSeedType + 1))
+	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEED_SLOTS; aSeedType = (SeedType)(aSeedType + 1))
 	{
 		if (mApp->HasSeedType(aSeedType) || IsModSeed(aSeedType))
 		{
@@ -1118,7 +1119,7 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 
 	if (GetPageButtonRect().Contains(x, y))
 	{
-		for (int i = 0; i < int(NUM_SEED_TYPES); ++i)
+		for (int i = 0; i < int(NUM_SEED_SLOTS); ++i)
 			LandFlyingSeed(mChosenSeeds[i]);
 		mChooserPage = mChooserPage == 0 ? 1 : 0;
 		mApp->PlaySample(Sexy::SOUND_TAP);
@@ -1128,7 +1129,7 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 
 	if (mSeedsInFlight > 0)
 	{
-		for (int i = 0; i < int(NUM_SEED_TYPES); i++)
+		for (int i = 0; i < int(NUM_SEED_SLOTS); i++)
 		{
 			LandFlyingSeed(mChosenSeeds[i]);
 		}

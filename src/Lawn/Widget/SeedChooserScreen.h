@@ -79,7 +79,7 @@ public:
 	std::unique_ptr<GameButton> mAlmanacButton;
 	std::unique_ptr<GameButton> mMenuButton;
 	std::unique_ptr<GameButton> mImitaterButton;
-	ChosenSeed              mChosenSeeds[NUM_SEED_TYPES];
+	ChosenSeed              mChosenSeeds[NUM_SEED_SLOTS];
 	LawnApp*                mApp;
 	Board*                  mBoard;
 	int                     mNumSeedsToChoose;

@@ -104,11 +104,7 @@ constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
 	{ .mSeedType = SeedType::SEED_SPROUT,            .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_ZENGARDEN_SPROUT, .mPacketIndex = 33, .mSeedCost = 0,   .mRefreshTime = 3000,   .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "SPROUT" },
 	{ .mSeedType = SeedType::SEED_LEFTPEATER,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_REPEATER,      .mPacketIndex = 5,  .mSeedCost = 200, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 150,  .mPlantName = "REPEATER" },
 	{ .mSeedType = SeedType::SEED_ELECTRIC_GATLINGPEA, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_GATLINGPEA, .mPacketIndex = 5, .mSeedCost = 300, .mRefreshTime = 5000, .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 45, .mPlantName = "ELECTRIC_GATLING_PEA" },
-	{ .mSeedType = SeedType::SEED_CUSTOM_0, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_0" },
-	{ .mSeedType = SeedType::SEED_CUSTOM_1, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_1" },
-	{ .mSeedType = SeedType::SEED_CUSTOM_2, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_2" },
-	{ .mSeedType = SeedType::SEED_CUSTOM_3, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_3" }
-};
+				};
 
 Plant::Plant()
 {
@@ -5027,8 +5023,31 @@ void Plant::Die()
 	}
 }
 
+static constinit const PlantDefinition gCustomPlantDefs[4] = {
+	{ .mSeedType = SeedType::SEED_CUSTOM_0, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_0" },
+	{ .mSeedType = SeedType::SEED_CUSTOM_1, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_1" },
+	{ .mSeedType = SeedType::SEED_CUSTOM_2, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_2" },
+	{ .mSeedType = SeedType::SEED_CUSTOM_3, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_3" }
+};
+
 const PlantDefinition& GetPlantDefinition(SeedType theSeedType)
 {
+	if (theSeedType >= SeedType::SEED_CUSTOM_0 && theSeedType <= SeedType::SEED_CUSTOM_3)
+	{
+		static PlantDefinition aCustom[4];
+		static bool aReady = false;
+		if (!aReady)
+		{
+			aReady = true;
+			for (int i = 0; i < 4; ++i)
+			{
+				aCustom[i] = gCustomPlantDefs[i];
+				aCustom[i].mSeedCost = PvzpCustomPlants::CostForSeed(static_cast<SeedType>(int(SeedType::SEED_CUSTOM_0) + i), aCustom[i].mSeedCost);
+			}
+		}
+		return aCustom[int(theSeedType) - int(SeedType::SEED_CUSTOM_0)];
+	}
+
 	PVZP_ASSERT(theSeedType >= 0 && theSeedType < static_cast<int>(SeedType::NUM_SEED_TYPES));
 
 	// PvzpMod：首次访问时复制一份原版表，套用模组覆盖值
