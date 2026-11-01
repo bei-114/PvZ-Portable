@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.sun-empire",
+  "name": "Sun Empire",
+  "priority": 35,
+  "enabled": true,
+  "plants": {
+    "SUNFLOWER": { "cost": 25, "refresh": 300, "health": 400, "launchRate": 1800 },
+    "SUN_SHROOM": { "cost": 0, "refresh": 300, "health": 300, "launchRate": 1600 },
+    "TWIN_SUNFLOWER": { "cost": 75, "refresh": 500, "health": 400, "launchRate": 1800 }
+  },
+  "globals": { "startingSun": 150 }
+}

@@ -335,6 +335,31 @@ void SamplePacks(Checks& t, const fs::path& tmp) {
         "loading a fresh directory clears sample overrides");
 }
 
+void FunPacks(Checks& t, const fs::path& tmp) {
+    const fs::path root = tmp / "fun";
+    CopyFixture(root, "35-sun-empire", "35-sun-empire");
+    CopyFixture(root, "40-pea-party", "40-pea-party");
+    CopyFixture(root, "50-zombie-rush", "50-zombie-rush");
+    CopyFixture(root, "60-glass-cannon", "60-glass-cannon");
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::Diagnostics().empty(),
+        "four themed packs load without diagnostics");
+    t.Check(PvzpMod::List().size() == 4 && PvzpMod::List()[3].id == "org.pvzp.example.glass-cannon",
+        "themed packs order by priority");
+    t.Check(PvzpMod::PlantInt("PEASHOOTER", "cost", -1) == 50 &&
+        PvzpMod::PlantInt("GATLING_PEA", "cost", -1) == 150 &&
+        PvzpMod::PlantInt("GATLING_PEA", "launchRate", -1) == 50,
+        "glass cannon overrides pea party for shared fields");
+    t.Check(PvzpMod::ZombieInt("ZOMBIE", "health", -1) == 120 &&
+        PvzpMod::ZombieInt("ZOMBIE", "pickWeight", -1) == 8000 &&
+        PvzpMod::GlobalInt("startingSun", -1) == 150,
+        "zombie rush and sun empire values apply");
+    t.Check(PvzpMod::PlantInt("SUNFLOWER", "launchRate", -1) == 1800 &&
+        PvzpMod::PlantInt("SUN_SHROOM", "cost", -1) == 0,
+        "sun producers use the faster cycle");
+    t.Check(PvzpMod::LoadFromDirectory(tmp / "no-fun") && !PvzpMod::HasMods(),
+        "leaving the themed directory clears their rules");
+}
+
 void PathsAndMissing(Checks& t, const fs::path& tmp) {
     const fs::path absent = tmp / "no-such-mods";
     (void)PvzpMod::LoadFromDirectory(absent); // Missing directory is allowed, regardless of scan status.
@@ -381,6 +406,7 @@ int PvzpModRunTests() {
         RangeBoundaries(t, scratch.dir);
         DuplicateAndDisabled(t, scratch.dir);
         SamplePacks(t, scratch.dir);
+        FunPacks(t, scratch.dir);
         PathsAndMissing(t, scratch.dir);
     } catch (const std::exception& error) {
         t.Check(false, error.what());

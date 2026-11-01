@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.pea-party",
+  "name": "Pea Party",
+  "priority": 40,
+  "enabled": true,
+  "plants": {
+    "PEASHOOTER": { "cost": 25, "refresh": 400, "launchRate": 90, "health": 320 },
+    "REPEATER": { "cost": 50, "refresh": 400, "launchRate": 100, "health": 320 },
+    "GATLING_PEA": { "cost": 100, "refresh": 600, "launchRate": 80, "health": 350 },
+    "SPLIT_PEA": { "cost": 40, "refresh": 400, "launchRate": 100, "health": 320 },
+    "THREEPEATER": { "cost": 100, "refresh": 500, "launchRate": 100, "health": 320 }
+  },
+  "globals": { "startingSun": 150 }
+}

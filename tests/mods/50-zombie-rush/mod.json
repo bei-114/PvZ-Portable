@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.zombie-rush",
+  "name": "Zombie Rush",
+  "priority": 50,
+  "enabled": true,
+  "zombies": {
+    "ZOMBIE": { "health": 120, "pickWeight": 8000, "value": 1, "startingLevel": 1 },
+    "CONEHEAD_ZOMBIE": { "health": 220, "pickWeight": 2500, "startingLevel": 1 },
+    "BUCKETHEAD_ZOMBIE": { "health": 320, "pickWeight": 1500, "startingLevel": 3 }
+  }
+}

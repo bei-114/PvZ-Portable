@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.glass-cannon",
+  "name": "Glass Cannon",
+  "priority": 60,
+  "enabled": true,
+  "plants": {
+    "PEASHOOTER": { "cost": 50, "refresh": 300, "launchRate": 60, "health": 60 },
+    "SNOW_PEA": { "cost": 75, "refresh": 300, "launchRate": 70, "health": 60 },
+    "REPEATER": { "cost": 100, "refresh": 300, "launchRate": 60, "health": 60 },
+    "GATLING_PEA": { "cost": 150, "refresh": 400, "launchRate": 50, "health": 80 },
+    "CACTUS": { "cost": 50, "refresh": 300, "launchRate": 70, "health": 60 }
+  }
+}

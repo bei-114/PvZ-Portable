@@ -56,10 +56,14 @@ std::string Label(Board* b,int i){
  }else{
   if(s.page==2){switch(i){case 0:return "FINISH LEVEL";case 1:return "UNLOCK PROFILE";case 2:return "CANCEL TOOLS";case 3:return "FILL SEED BANK";case 4:return "PLANT: E-GATL";case 5:return "PLANT: SUNFLOWER";case 6:return "PLANT: WALLNUT";case 7:return "RESET FOOD TIMER";case 8:return "PAGE 3/4  >>";}}
   const auto& mods=PvzpMod::List();const auto& errors=PvzpMod::Diagnostics();
-  if(i==0)return "LOADED: "+std::to_string(mods.size())+"  ERRORS: "+std::to_string(errors.size());
+  int modErrors=0;const PvzpMod::Diagnostic* saveNotice=nullptr;const PvzpMod::Diagnostic* firstError=nullptr;
+  for(const auto& d:errors){const bool isSave=d.folder.size()>=8&&d.folder.compare(d.folder.size()-8,8,"savegame")==0;
+    if(isSave)saveNotice=&d;else{++modErrors;if(!firstError)firstError=&d;}}
+  if(i==0)return "LOADED: "+std::to_string(mods.size())+"  MOD ERRORS: "+std::to_string(modErrors);
   if(i>=1&&i<=5){size_t n=size_t(i-1);return n<mods.size() ?
     std::string(mods[n].enabled?"ON  ":"OFF ")+mods[n].id.substr(0,20) : "-";}
-  if(i==6)return errors.empty()?"NO LOAD ERRORS":("ERR: "+errors.front().message.substr(0,22));
+  if(i==6){if(firstError)return "ERR: "+firstError->message.substr(0,22);
+    if(saveNotice)return "OLD SAVE RULES (SAFE)";return "NO LOAD ERRORS";}
   if(i==7)return "EDIT JSON / RESTART GAME";
   if(i==8)return "PAGE 4/4  >>";
  }
