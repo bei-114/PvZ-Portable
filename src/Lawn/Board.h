@@ -292,7 +292,8 @@ public:
 	bool							DbgMouseDown(int x, int y);
 	bool							mDbgOpen = false;
 	bool							mDbgPlantPending = false;
-	int								mEguTimer = 0;
+	bool                            mDbgConsumeMouseUp = false;
+	void                            FireElectricFan(Plant* thePlant);
 	void							DrawBackdrop(Graphics* g);
 	void							ButtonPress  	(int) override{}
 	void							ButtonDepress	(int) override{}

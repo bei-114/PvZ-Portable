@@ -21,6 +21,7 @@
 
 #include <time.h>
 #include <algorithm>
+#include <cstdlib>
 #include <SDL.h>
 #include <format>
 #include "ZenGarden.h"
@@ -67,6 +68,12 @@ constexpr const int SUN_COUNTDOWN_RANGE = 275;
 constexpr const int SUN_COUNTDOWN_MAX = 950;
 constexpr const int FOG_BLOW_RETURN_TIME = 2000;
 constexpr const int FLAG_RAISE_TIME = 100;
+
+#ifndef __ANDROID__
+// Opt-in deterministic in-engine regression; never operates on a player's save
+// unless explicitly launched with PVZP_ELECTRIC_TEST in a separate test HOME.
+void PvzpRunElectricRegression(Board* theBoard);
+#endif
 
 bool gShownMoreSunTutorial = false;
 
@@ -4367,38 +4374,32 @@ void Board::PickUpTool(GameObjectType theObjectType)
 void Board::MouseDown(int x, int y, int theClickCount)
 {
 	UpdateMousePosition();
-	// 点击电能机枪豌豆：扇形大招
-	for (Plant* aP : mPlants)
+	// Consume the entire debug gesture, including MouseUp. Tools and seed
+	// packets must never be intercepted by a plant's active ability.
+	if (theClickCount > 0 && DbgMouseDown(x, y))
 	{
-		if (mCursorObject && mCursorObject->mCursorType == CursorType::CURSOR_TYPE_SHOVEL)
-			break;
-		if (aP->mDead || aP->mSeedType != SeedType::SEED_ELECTRIC_GATLINGPEA)
-			continue;
-		int aPx = GridToPixelX(aP->mPlantCol, aP->mRow) + 40;
-		int aPy = GridToPixelY(aP->mPlantCol, aP->mRow) + 40;
-		if (x >= aPx - 40 && x <= aPx + 40 && y >= aPy - 50 && y <= aPy + 30)
+		mDbgConsumeMouseUp = true;
+		return;
+	}
+	if (theClickCount > 0 && !mDbgOpen && !mDbgPlantPending &&
+		!mPaused && mTimeStopCounter == 0 && mBoardFadeOutCounter < 0 &&
+		mApp->mGameScene == GameScenes::SCENE_PLAYING && mApp->GetDialogCount() == 0 &&
+		mCursorObject->mCursorType == CursorType::CURSOR_TYPE_NORMAL)
+	{
+		HitResult aPlantHit;
+		MouseHitTest(x, y, &aPlantHit);
+		if (aPlantHit.mObjectType == GameObjectType::OBJECT_TYPE_PLANT)
 		{
-			int aHits = 0;
-			for (Zombie* aZ : mZombies)
+			Plant* aPlant = static_cast<Plant*>(aPlantHit.mObject);
+			if (!aPlant->mDead && !aPlant->NotOnGround() &&
+				aPlant->mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
 			{
-				if (!aZ || aZ->mDead)
-					continue;
-				if (aZ->mRow < aP->mRow - 1 || aZ->mRow > aP->mRow + 1)
-					continue;
-				if (aZ->mPosX < aPx - 60 || aZ->mPosX > aPx + 340)
-					continue;
-				aZ->mBodyHealth -= 100;
-				aZ->mChilledCounter = 200;
-				if (aZ->mBodyHealth <= 0)
-					aZ->DieWithLoot();
-				if (++aHits >= 8)
-					break;
+				FireElectricFan(aPlant);
+				mDbgConsumeMouseUp = true;
+				return;
 			}
-			return;
 		}
 	}
-	if (DbgMouseDown(x, y))
-		return;
 	Widget::MouseDown(x, y, theClickCount);
 	mIgnoreMouseUp = !CanInteractWithBoardButtons();
 	if (mTimeStopCounter > 0)
@@ -4617,6 +4618,12 @@ bool Board::CanInteractWithBoardButtons()
 void Board::MouseUp(int x, int y, int theClickCount)
 {
 	Widget::MouseUp(x, y, theClickCount);
+	if (mDbgConsumeMouseUp)
+	{
+		mDbgConsumeMouseUp = false;
+		mIgnoreMouseUp = false;
+		return;
+	}
 	if (mIgnoreMouseUp)
 	{
 		mIgnoreMouseUp = false;
@@ -5735,36 +5742,6 @@ void Board::Update()
 
 	mBoardUpdateCounter++;
 
-	// 电能机枪豌豆：周期性电链（同排与上下各一排，最多 3 只）
-	if (mEguTimer > 0)
-		mEguTimer--;
-	else
-	{
-		mEguTimer = 120;
-		for (Plant* aP : mPlants)
-		{
-			if (aP->mDead || aP->mSeedType != SeedType::SEED_ELECTRIC_GATLINGPEA)
-				continue;
-			int aHits = 0;
-			int aPlantX = GridToPixelX(aP->mPlantCol, aP->mRow) + 40;
-			for (Zombie* aZ : mZombies)
-			{
-				if (!aZ || aZ->mDead)
-					continue;
-				// 跨行电链：上下两排内、前方 320 像素
-				if (aZ->mPosX < aPlantX - 40 || aZ->mPosX > aPlantX + 320)
-					continue;
-				if (aZ->mRow < aP->mRow - 2 || aZ->mRow > aP->mRow + 2)
-					continue;
-				aZ->mBodyHealth -= 40;
-				aZ->mChilledCounter = 100;
-				if (aZ->mBodyHealth <= 0)
-					aZ->DieWithLoot();
-				aHits++;
-			}
-		}
-	}
-
 	mCutScene->Update();
 	UpdateMousePosition();
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
@@ -5847,6 +5824,10 @@ void Board::Update()
 		mPoolSparklyParticleID = mApp->ParticleGetID(aPoolParticle);
 	}
 
+#ifndef __ANDROID__
+	if (std::getenv("PVZP_ELECTRIC_TEST"))
+		PvzpRunElectricRegression(this);
+#endif
 	UpdateGridItems();
 	UpdateFwoosh();
 	UpdateGame();
@@ -7540,7 +7521,14 @@ void Board::DrawDbgPanel(Graphics* g)
 {
 	g->SetColor(Sexy::Color(20, 20, 30, 200));
 	g->FillRect(600, 2, 76, 22);
-	PvzpDrawString(g, "DBG", 638, 4, Sexy::FONT_DWARVENTODCRAFT12, Sexy::Color(255, 230, 120), DrawStringJustification::DS_ALIGN_CENTER);
+	PvzpDrawString(g, "DBG", 638, 18, Sexy::FONT_DWARVENTODCRAFT12, Sexy::Color(255, 230, 120), DrawStringJustification::DS_ALIGN_CENTER);
+	if (mDbgPlantPending)
+	{
+		g->SetColor(Sexy::Color(12, 30, 55, 230));
+		g->FillRect(160, 72, 480, 32);
+		PvzpDrawString(g, "E-GATL: TAP EMPTY LAWN / DBG TO CANCEL", 400, 94,
+			Sexy::FONT_DWARVENTODCRAFT12, Sexy::Color(100, 235, 255), DrawStringJustification::DS_ALIGN_CENTER);
+	}
 	if (!mDbgOpen)
 		return;
 
@@ -7552,26 +7540,65 @@ void Board::DrawDbgPanel(Graphics* g)
 		int aY = 30 + i * 37;
 		g->SetColor(Sexy::Color(45, 45, 70, 235));
 		g->FillRect(444, aY, 220, 32);
-		PvzpDrawString(g, aLabels[i], 554, aY + 9, Sexy::FONT_DWARVENTODCRAFT12, Sexy::Color(255, 230, 120), DrawStringJustification::DS_ALIGN_CENTER);
+		PvzpDrawString(g, aLabels[i], 554, aY + 22, Sexy::FONT_DWARVENTODCRAFT12, Sexy::Color(255, 230, 120), DrawStringJustification::DS_ALIGN_CENTER);
 	}
+}
+
+void Board::FireElectricFan(Plant* thePlant)
+{
+	// Actual projectiles, not silent rectangular health subtraction. The STAR
+	// motion already updates the collision row as a projectile crosses lanes.
+	int aOffsetX, aOffsetY;
+	thePlant->GetPeaHeadOffset(aOffsetX, aOffsetY);
+	const int aX = thePlant->mX + aOffsetX + 34;
+	const int aY = thePlant->mY + aOffsetY - 33 - (GetFlowerPotAt(thePlant->mPlantCol, thePlant->mRow) ? 5 : 0);
+	for (int volley = 0; volley < 3; ++volley)
+	{
+		for (int ray = -4; ray <= 4; ++ray)
+		{
+			const float aAngle = DEG_TO_RAD(ray * 9.0f);
+			Projectile* aProjectile = AddProjectile(aX - volley * 12, aY,
+				thePlant->mRenderOrder - 1, thePlant->mRow, ProjectileType::PROJECTILE_PEA);
+			if (!aProjectile)
+				continue;
+			aProjectile->mDamageRangeFlags = thePlant->GetDamageRangeFlags(PlantWeapon::WEAPON_PRIMARY);
+			aProjectile->mMotionType = ProjectileMotion::MOTION_STAR;
+			aProjectile->mVelX = cos(aAngle) * 5.0f;
+			aProjectile->mVelY = sin(aAngle) * 5.0f;
+			aProjectile->SetElectric();
+		}
+	}
+	mApp->PlayFoley(FoleyType::FOLEY_THROW);
+	if (std::getenv("PVZP_ELECTRIC_TRACE"))
+		SDL_Log("ELECTRIC fan tick=%d col=%d row=%d projectiles=27", mMainCounter, thePlant->mPlantCol, thePlant->mRow);
 }
 
 bool Board::DbgMouseDown(int x, int y)
 {
+	if (mPaused || mTimeStopCounter > 0 || mBoardFadeOutCounter >= 0 ||
+		mApp->mGameScene != GameScenes::SCENE_PLAYING || mApp->GetDialogCount() > 0)
+		return false;
+	if (x >= 600 && x < 676 && y >= 2 && y < 26)
+	{
+		if (mDbgPlantPending)
+			mDbgPlantPending = false;
+		else
+			mDbgOpen = !mDbgOpen;
+		return true;
+	}
 	if (mDbgPlantPending)
 	{
-		int aCol = PixelToGridX(x, y);
-		int aRow = PixelToGridY(x, y);
-		if (aCol >= 0 && aCol < 9 && aRow >= 0 && aRow < 5)
+		const int aCol = PixelToGridX(x, y);
+		const int aRow = PixelToGridY(x, y);
+		if (aCol >= 0 && aCol < MAX_GRID_SIZE_X && aRow >= 0 &&
+			aRow < (StageHas6Rows() ? 6 : 5) &&
+			CanPlantAt(aCol, aRow, SeedType::SEED_ELECTRIC_GATLINGPEA) == PlantingReason::PLANTING_OK)
 		{
 			AddPlant(aCol, aRow, SeedType::SEED_ELECTRIC_GATLINGPEA);
 			mDbgPlantPending = false;
-			return true;
 		}
-	}
-	if (x >= 600 && x <= 676 && y >= 2 && y <= 24)
-	{
-		mDbgOpen = !mDbgOpen;
+		else
+			mApp->PlaySample(Sexy::SOUND_BUZZER);
 		return true;
 	}
 	if (!mDbgOpen || x < 444 || x > 664)
@@ -7605,6 +7632,7 @@ bool Board::DbgMouseDown(int x, int y)
 			}
 			break;
 		case 4:
+			ClearCursor();
 			mDbgPlantPending = true;
 			mDbgOpen = false;
 			break;
@@ -7614,9 +7642,10 @@ bool Board::DbgMouseDown(int x, int y)
 				mHugeWaveCountDown = 1;
 			break;
 		case 6:
-			if (mApp->mPlayerInfo)
-				mApp->mPlayerInfo->SetLevel(mLevel + 1);
-			mApp->StartPlaying();
+			// Defer the normal end-of-level transition to LawnApp::CheckForGameEnd.
+			// StartPlaying only changes the scene; it does not create a new board.
+			mLevelComplete = true;
+			mDbgOpen = false;
 			break;
 		case 7:
 			if (mApp->mPlayerInfo)

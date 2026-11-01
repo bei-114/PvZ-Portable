@@ -44,6 +44,7 @@
 #include "../PvzpLib/PvzpStringFile.h"
 #include "Widget/AchievementsScreen.h"
 #include <algorithm>
+#include <cstdlib>
 #include <format>
 
 constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
@@ -735,6 +736,11 @@ PvzpParticleSystem* Plant::AddAttachedParticle(int thePosX, int thePosY, int the
 
 bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 {
+	// Do not restart a burst when the short launch timer expires. This also
+	// lets an old save's 100-tick electric burst finish without being reset.
+	if (mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA && mShootingCounter > 0)
+		return false;
+
 	Zombie* aZombie = FindTargetZombie(theRow, thePlantWeapon);
 	if (aZombie == nullptr)
 		return false;
@@ -765,10 +771,15 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 			aHeadReanim->mAnimRate = 45.0f;
 			mShootingCounter = 26;
 		}
-		else if (mSeedType == SeedType::SEED_GATLINGPEA || mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
+		else if (mSeedType == SeedType::SEED_GATLINGPEA)
 		{
 			aHeadReanim->mAnimRate = 38.0f;
 			mShootingCounter = 100;
+		}
+		else if (mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
+		{
+			aHeadReanim->mAnimRate = 95.0f;
+			mShootingCounter = 40;
 		}
 	}
 	else if (mState == PlantState::STATE_CACTUS_HIGH)
@@ -3237,6 +3248,15 @@ void Plant::UpdateShooting()
 			Fire(nullptr, mRow, PlantWeapon::WEAPON_PRIMARY);
 		}
 	}
+	else if (mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
+	{
+		// Keep all four shots in the accelerated animation, with no generic
+		// counter==1 shot while waiting for the head to return to idle.
+		if (mShootingCounter == 32 || mShootingCounter == 24 || mShootingCounter == 16 || mShootingCounter == 8)
+		{
+			Fire(nullptr, mRow, PlantWeapon::WEAPON_PRIMARY);
+		}
+	}
 	else if (mSeedType == SeedType::SEED_CATTAIL)
 	{
 		if (mShootingCounter == 19)
@@ -4505,10 +4525,10 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
 	case SeedType::SEED_SPLITPEA:
 	case SeedType::SEED_GATLINGPEA:
 	case SeedType::SEED_LEFTPEATER:
+	case SeedType::SEED_ELECTRIC_GATLINGPEA:
 		aProjectileType = ProjectileType::PROJECTILE_PEA;
 		break;
 	case SeedType::SEED_SNOWPEA:
-	case SeedType::SEED_ELECTRIC_GATLINGPEA:
 		aProjectileType = ProjectileType::PROJECTILE_SNOWPEA;
 		break;
 	case SeedType::SEED_PUFFSHROOM:
@@ -4537,7 +4557,7 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
 		break;
 	default:
 		PVZP_ASSERT(false);
-		break;
+		return;
 	}
 	if (mSeedType == SeedType::SEED_KERNELPULT && thePlantWeapon == PlantWeapon::WEAPON_SECONDARY)
 	{
@@ -4604,7 +4624,7 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
 		aOriginX = mX - aOffsetX + 27;
 		aOriginY = mY + aOffsetY - 33;
 	}
-	else if (mSeedType == SeedType::SEED_GATLINGPEA)
+	else if (mSeedType == SeedType::SEED_GATLINGPEA || mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
 	{
 		int aOffsetX, aOffsetY;
 		GetPeaHeadOffset(aOffsetX, aOffsetY);
@@ -4681,7 +4701,27 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
 	}
 
 	Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder - 1, theRow, aProjectileType);
+	if (aProjectile == nullptr)
+		return;
 	aProjectile->mDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
+	if (mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
+	{
+		aProjectile->SetElectric();
+		static const bool aTraceEnabled = []
+		{
+			const char* aValue = std::getenv("PVZP_ELECTRIC_TRACE");
+			return aValue && aValue[0] != '\0' && aValue[0] != '0';
+		}();
+		// Process-wide budget: even an unattended trace cannot flood the log.
+		static int aTraceRemaining = 128;
+		if (aTraceEnabled && aTraceRemaining > 0)
+		{
+			--aTraceRemaining;
+			PvzpLogLn("Electric shot tick={} col={} row={} x={} y={} shooting={} launch={} remaining={}",
+				mBoard->mMainCounter, mPlantCol, theRow, aOriginX, aOriginY,
+				mShootingCounter, mLaunchCounter, aTraceRemaining);
+		}
+	}
 
 	if (mSeedType == SeedType::SEED_CABBAGEPULT || mSeedType == SeedType::SEED_KERNELPULT ||
 		mSeedType == SeedType::SEED_MELONPULT || mSeedType == SeedType::SEED_WINTERMELON)

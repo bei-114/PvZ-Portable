@@ -75,7 +75,7 @@ public:
 	int32_t                 mLastPortalX;
 
 public:
-	Projectile();
+	Projectile() = default;
 	~Projectile();
 
 	void                    ProjectileInitialize(int theX, int theY, int theRenderOrder, int theRow, ProjectileType theProjectileType);
@@ -102,6 +102,15 @@ public:
 	void                    PlayImpactSound(Zombie* theZombie);
 	bool                    IsZombieHitBySplash(Zombie* theZombie);
 	bool                    PeaAboutToHitTorchwood();
+
+	// Transient sidecar state: adding data members would break sizeof-based legacy saves.
+	// Call after ProjectileInitialize; fresh/reused/loaded projectiles default to non-electric.
+	void                    SetElectric(bool theElectric = true);
+	bool                    IsElectric() const;
+
+private:
+	void                    DoElectricImpact(Zombie* theZombie);
+	void                    DrawElectric(Graphics* g);
 
 };
 

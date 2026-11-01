@@ -23,6 +23,7 @@
 #include "SaveGame.h"
 #include "../Board.h"
 #include "../Challenge.h"
+#include "../Plant.h"
 #include "../SeedPacket.h"
 #include "../../LawnApp.h"
 #include "../CursorObject.h"
@@ -2086,6 +2087,35 @@ static void FixBoardAfterLoad(Board* theBoard)
 		{
 			aPlant->mApp = theBoard->mApp;
 			aPlant->mBoard = theBoard;
+
+			// Some early electric plants were saved with only their stem.
+			// Repair only the missing attachment, not the whole plant: health,
+			// identity, launch rate and cooldown must survive loading.
+			if (aPlant->mDead || aPlant->mSeedType != SeedType::SEED_ELECTRIC_GATLINGPEA ||
+				theBoard->mApp->ReanimationTryToGet(aPlant->mHeadReanimID))
+				continue;
+			Reanimation* aBodyReanim = theBoard->mApp->ReanimationTryToGet(aPlant->mBodyReanimID);
+			if (aBodyReanim == nullptr)
+				continue;
+			const char* aAttachTrack = aBodyReanim->TrackExists("anim_stem") ? "anim_stem" :
+				aBodyReanim->TrackExists("anim_idle") ? "anim_idle" : nullptr;
+			if (aAttachTrack == nullptr)
+				continue;
+
+			Reanimation* aHeadReanim = theBoard->mApp->AddReanimation(0.0f, 0.0f,
+				aPlant->mRenderOrder + 2, GetPlantDefinition(aPlant->mSeedType).mReanimationType);
+			if (aHeadReanim == nullptr)
+				continue;
+			aPlant->EndBlink();
+			aHeadReanim->mLoopType = ReanimLoopType::REANIM_LOOP;
+			aHeadReanim->SetFramesForLayer("anim_head_idle");
+			aHeadReanim->mAnimRate = aBodyReanim->mAnimRate;
+			aHeadReanim->mAnimTime = aBodyReanim->mAnimTime;
+			aHeadReanim->AttachToAnotherReanimation(aBodyReanim, aAttachTrack);
+			aPlant->mHeadReanimID = theBoard->mApp->ReanimationGetID(aHeadReanim);
+			// A missing head has no reliable shooting phase. Start its next
+			// burst normally; existing heads keep even legacy 100-tick bursts.
+			aPlant->mShootingCounter = 0;
 		}
 	}
 	{

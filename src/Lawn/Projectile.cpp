@@ -31,8 +31,97 @@
 #include "../PvzpLib/PvzpDebug.h"
 #include "../PvzpLib/Reanimator.h"
 #include "../PvzpLib/Attachment.h"
+#include "../SexyAppFramework/misc/SexyVector.h"
 #include "Widget/AchievementsScreen.h"
 #include <algorithm>
+#include <array>
+#include <cstdio>
+#include <cstdlib>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+namespace
+{
+constexpr float ELECTRIC_CHAIN_RADIUS = 160.0f;
+constexpr int ELECTRIC_STUN_TICKS = 30; // 0.3 seconds at the game's 100 Hz update rate.
+constexpr int ELECTRIC_BOLT_TICKS = 12;
+
+struct ElectricBolt
+{
+	std::array<SexyVector2, 7> mPoints;
+	int mTicksLeft = ELECTRIC_BOLT_TICKS;
+};
+
+struct ElectricProjectileState
+{
+	Board* mBoard = nullptr;
+	bool mElectric = false;
+	std::unordered_set<unsigned int> mHitZombieIDs;
+	std::vector<ElectricBolt> mBolts;
+};
+
+// Keep transient ownership outside the object's binary layout: legacy saves copy sizeof(Projectile).
+// DataArray resets/destructs its objects on reuse/load. Destructor cleanup and
+// ProjectileInitialize reset prevent recycled addresses from inheriting electric state.
+// Keep Projectile's constructor defaulted so value-initialization still zeroes its fields.
+std::unordered_map<const Projectile*, ElectricProjectileState> gElectricProjectiles;
+
+ElectricProjectileState* GetElectricState(const Projectile* theProjectile)
+{
+	auto anEntry = gElectricProjectiles.find(theProjectile);
+	return anEntry != gElectricProjectiles.end() && anEntry->second.mBoard == theProjectile->mBoard && anEntry->second.mElectric
+		? &anEntry->second : nullptr;
+}
+
+bool CanElectricHit(Projectile* theProjectile, Zombie* theZombie, const ElectricProjectileState& theState)
+{
+	return theZombie && !theZombie->IsDeadOrDying() && !theZombie->mMindControlled &&
+		theZombie->EffectedByDamage(static_cast<unsigned int>(theProjectile->mDamageRangeFlags)) &&
+		!theState.mHitZombieIDs.contains(static_cast<unsigned int>(theProjectile->mBoard->ZombieGetID(theZombie)));
+}
+
+SexyVector2 ElectricTargetPoint(Zombie* theZombie)
+{
+	Rect aRect = theZombie->GetZombieRect();
+	return SexyVector2(aRect.mX + aRect.mWidth * 0.5f, aRect.mY + aRect.mHeight * 0.5f);
+}
+
+void AddElectricBolt(ElectricProjectileState& theState, const SexyVector2& theFrom, const SexyVector2& theTo, unsigned int theSeed)
+{
+	ElectricBolt aBolt;
+	SexyVector2 aDelta = theTo - theFrom;
+	SexyVector2 aNormal(-aDelta.y, aDelta.x);
+	if (aDelta.x != 0.0f || aDelta.y != 0.0f)
+		aNormal = aNormal.Normalize();
+	for (size_t i = 0; i < aBolt.mPoints.size(); ++i)
+	{
+		float aFraction = static_cast<float>(i) / (aBolt.mPoints.size() - 1);
+		// Stable jagged geometry, without consuming gameplay's random-number stream in Draw.
+		float aJitter = i == 0 || i == aBolt.mPoints.size() - 1 ? 0.0f :
+			static_cast<float>((theSeed + static_cast<unsigned int>(i) * 13U) % 17U) - 8.0f;
+		aBolt.mPoints[i] = theFrom + aDelta * aFraction + aNormal * aJitter;
+	}
+	theState.mBolts.push_back(aBolt);
+}
+
+void TraceElectricImpact(size_t theHitCount, size_t theLifetimeHits)
+{
+	static const bool aTrace = [] {
+		const char* aValue = std::getenv("PVZP_ELECTRIC_TRACE");
+		return aValue && *aValue && *aValue != '0';
+	}();
+	if (!aTrace)
+		return;
+	static unsigned long long aImpacts = 0;
+	static unsigned long long aTargets = 0;
+	++aImpacts;
+	aTargets += theHitCount;
+	if (aImpacts == 1 || aImpacts % 32 == 0)
+		std::fprintf(stderr, "[electric] impacts=%llu damaged_targets=%llu last_chain=%zu projectile_unique_hits=%zu\n",
+			aImpacts, aTargets, theHitCount, theLifetimeHits);
+}
+}
 
 constinit const ProjectileDefinition gProjectileDefinition[] = {
 	{ .mProjectileType = ProjectileType::PROJECTILE_PEA, .mImageRow = 0, .mDamage = 20 },
@@ -51,17 +140,41 @@ constinit const ProjectileDefinition gProjectileDefinition[] = {
 	{ .mProjectileType = ProjectileType::PROJECTILE_ZOMBIE_PEA, .mImageRow = 0, .mDamage = 20 }
 };
 
-Projectile::Projectile()
-{
-}
-
 Projectile::~Projectile()
 {
+	gElectricProjectiles.erase(this);
 	AttachmentDie(mAttachmentID);
+}
+
+void Projectile::SetElectric(bool theElectric)
+{
+	if (!theElectric)
+	{
+		gElectricProjectiles.erase(this);
+		return;
+	}
+	if (IsElectric())
+		return;
+	ElectricProjectileState& aState = gElectricProjectiles[this];
+	aState = ElectricProjectileState{};
+	aState.mBoard = mBoard;
+	aState.mElectric = true;
+	// Electricity is not a cold pea: remove an accidental snow trail/type as well as freeze flags.
+	if (mProjectileType == ProjectileType::PROJECTILE_SNOWPEA)
+	{
+		AttachmentDie(mAttachmentID);
+		mProjectileType = ProjectileType::PROJECTILE_PEA;
+	}
+}
+
+bool Projectile::IsElectric() const
+{
+	return GetElectricState(this) != nullptr;
 }
 
 void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, int theRow, ProjectileType theProjectileType)
 {
+	SetElectric(false);
 	int aGridX = mBoard->PixelToGridXKeepOnBoard(theX, theY);
 	mProjectileType = theProjectileType;
 	mPosX = theX;
@@ -223,16 +336,19 @@ bool Projectile::PeaAboutToHitTorchwood()
 
 Zombie* Projectile::FindCollisionTarget()
 {
-	if (PeaAboutToHitTorchwood())  // a pea about to hit a torchwood skips zombie collision ("torchwood clip" trick)
+	if (!IsElectric() && PeaAboutToHitTorchwood())  // normal peas retain the "torchwood clip" trick
 		return nullptr;
 
 	Rect aProjectileRect = GetProjectileRect();
 	Zombie* aBestZombie = nullptr;
 	int aMinX = 0;
+	ElectricProjectileState* anElectricState = GetElectricState(this);
 
 	for (Zombie* aZombie : mBoard->mZombies)
 	{
 		if (aZombie->mDead)
+			continue;
+		if (anElectricState && !CanElectricHit(this, aZombie, *anElectricState))
 			continue;
 		if ((aZombie->mZombieType == ZombieType::ZOMBIE_BOSS || aZombie->mRow == mRow) && aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
 		{
@@ -270,6 +386,12 @@ void Projectile::CheckForCollision()
 	}
 
 	if (mPosX > WIDE_BOARD_WIDTH || mPosX + mWidth < 0.0f)
+	{
+		Die();
+		return;
+	}
+
+	if (IsElectric() && mMotionType == ProjectileMotion::MOTION_STAR && (mPosY < 0.0f || mPosY > BOARD_HEIGHT))
 	{
 		Die();
 		return;
@@ -415,7 +537,7 @@ unsigned int Projectile::GetDamageFlags(Zombie* theZombie)
 		SetBit(aDamageFlags, static_cast<int>(DamageFlags::DAMAGE_BYPASSES_SHIELD), true);
 	}
 
-	if (mProjectileType == ProjectileType::PROJECTILE_SNOWPEA || mProjectileType == ProjectileType::PROJECTILE_WINTERMELON)
+	if (!IsElectric() && (mProjectileType == ProjectileType::PROJECTILE_SNOWPEA || mProjectileType == ProjectileType::PROJECTILE_WINTERMELON))
 	{
 		SetBit(aDamageFlags, static_cast<int>(DamageFlags::DAMAGE_FREEZE), true);
 	}
@@ -820,8 +942,74 @@ void Projectile::PlayImpactSound(Zombie* theZombie)
 	}
 }
 
+void Projectile::DoElectricImpact(Zombie* theZombie)
+{
+	ElectricProjectileState* aState = GetElectricState(this);
+	if (!aState || !CanElectricHit(this, theZombie, *aState))
+		return;
+
+	PlayImpactSound(theZombie);
+	// Queue fixed board-space impact points, not pointers that damage callbacks could invalidate.
+	// Each newly reached zombie becomes a source: no row restriction or arbitrary target cap.
+	std::vector<SexyVector2> aSources;
+	aSources.push_back(ElectricTargetPoint(theZombie));
+	AddElectricBolt(*aState, SexyVector2(mPosX + 12.0f, mPosY + mPosZ + 12.0f), aSources.front(), mProjectileAge);
+	size_t aHitCount = 0;
+	auto aDamageZombie = [&](Zombie* aZombie) {
+		unsigned int anID = static_cast<unsigned int>(mBoard->ZombieGetID(aZombie));
+		aState->mHitZombieIDs.insert(anID); // lifetime deduplication, before any damage side effects
+		++aHitCount;
+		aZombie->TakeDamage(GetProjectileDef().mDamage, GetDamageFlags(aZombie));
+		if (!aZombie->IsDeadOrDying())
+		{
+			// Reuse butter's immobilization/animation/sound handling and immunity rules.
+			// This visibly shows butter, but lasts only 30 ticks; it is NOT ice/slow.
+			// Never shorten a stronger pre-existing butter stun.
+			int aPreviousButter = aZombie->mButteredCounter;
+			if (aPreviousButter < ELECTRIC_STUN_TICKS)
+			{
+				aZombie->ApplyButter();
+				if (aZombie->mButteredCounter > aPreviousButter)
+					aZombie->mButteredCounter = std::max(aPreviousButter, std::min(aZombie->mButteredCounter, ELECTRIC_STUN_TICKS));
+			}
+		}
+	};
+	aDamageZombie(theZombie);
+	for (size_t i = 0; i < aSources.size(); ++i)
+	{
+		// Copy before pushing: vector growth may invalidate its existing elements.
+		SexyVector2 aSource = aSources[i];
+		for (Zombie* aZombie : mBoard->mZombies)
+		{
+			if (!CanElectricHit(this, aZombie, *aState))
+				continue;
+			SexyVector2 aTarget = ElectricTargetPoint(aZombie);
+			SexyVector2 aDelta = aTarget - aSource;
+			if (aDelta.x * aDelta.x + aDelta.y * aDelta.y > ELECTRIC_CHAIN_RADIUS * ELECTRIC_CHAIN_RADIUS)
+				continue;
+			AddElectricBolt(*aState, aSource, aTarget, static_cast<unsigned int>(mBoard->ZombieGetID(aZombie)));
+			aSources.push_back(aTarget);
+			aDamageZombie(aZombie);
+		}
+	}
+	TraceElectricImpact(aHitCount, aState->mHitZombieIDs.size());
+	// A homing projectile must not keep steering into its already-hit target. Continue
+	// ballistically with its current velocity, using STAR's existing cross-row tracking.
+	if (mMotionType == ProjectileMotion::MOTION_HOMING)
+	{
+		mMotionType = ProjectileMotion::MOTION_STAR;
+		mTargetZombieID = ZombieID::ZOMBIEID_NULL;
+	}
+	// No Die(): the primary electric projectile pierces and may start another chain later.
+}
+
 void Projectile::DoImpact(Zombie* theZombie)
 {
+	if (IsElectric() && theZombie)
+	{
+		DoElectricImpact(theZombie);
+		return;
+	}
 	PlayImpactSound(theZombie);
 
 	if (IsSplashDamage(theZombie))
@@ -943,6 +1131,13 @@ void Projectile::Update()
 	if (mApp->mGameScene != GameScenes::SCENE_PLAYING && !mBoard->mCutScene->ShouldRunUpsellBoard())
 		return;
 
+	if (ElectricProjectileState* aState = GetElectricState(this))
+	{
+		for (ElectricBolt& aBolt : aState->mBolts)
+			--aBolt.mTicksLeft;
+		std::erase_if(aState->mBolts, [](const ElectricBolt& aBolt) { return aBolt.mTicksLeft <= 0; });
+	}
+
 	int aTime = 20;
 	if (mProjectileType == ProjectileType::PROJECTILE_PEA ||
 		mProjectileType == ProjectileType::PROJECTILE_SNOWPEA ||
@@ -972,8 +1167,58 @@ void Projectile::Update()
 	AttachmentUpdateAndMove(mAttachmentID, mPosX, mPosY + mPosZ);
 }
 
+void Projectile::DrawElectric(Graphics* g)
+{
+	ElectricProjectileState* aState = GetElectricState(this);
+	if (!aState)
+		return;
+
+	// BeginDraw translated by this projectile's current mX/mY. Stored bolts are fixed
+	// board coordinates; undo ONLY that translation, retaining the Board/camera frame.
+	Graphics aElectricGraphics(*g);
+	MakeParentGraphicsFrame(&aElectricGraphics);
+	aElectricGraphics.SetDrawMode(Graphics::DRAWMODE_NORMAL);
+	aElectricGraphics.SetColorizeImages(false);
+	aElectricGraphics.SetScale(1.0f, 1.0f, 0.0f, 0.0f);
+	for (const ElectricBolt& aBolt : aState->mBolts)
+	{
+		int anAlpha = 255 * aBolt.mTicksLeft / ELECTRIC_BOLT_TICKS;
+		for (size_t i = 1; i < aBolt.mPoints.size(); ++i)
+		{
+			const SexyVector2& aFrom = aBolt.mPoints[i - 1];
+			const SexyVector2& aTo = aBolt.mPoints[i];
+			int aFromX = static_cast<int>(aFrom.x);
+			int aFromY = static_cast<int>(aFrom.y);
+			int aToX = static_cast<int>(aTo.x);
+			int aToY = static_cast<int>(aTo.y);
+			aElectricGraphics.SetColor(Color(40, 140, 255, anAlpha));
+			aElectricGraphics.DrawLine(aFromX, aFromY - 1, aToX, aToY - 1);
+			aElectricGraphics.DrawLine(aFromX, aFromY + 1, aToX, aToY + 1);
+			aElectricGraphics.SetColor(Color(220, 255, 255, anAlpha));
+			aElectricGraphics.DrawLine(aFromX, aFromY, aToX, aToY);
+		}
+	}
+
+	// A distinct electric pea, never the snow-pea sprite. State changes stay in this copy.
+	aElectricGraphics.SetColorizeImages(true);
+	aElectricGraphics.SetColor(Color(100, 220, 255));
+	aElectricGraphics.DrawImage(IMAGE_PROJECTILEPEA, static_cast<int>(mPosX), static_cast<int>(mPosY + mPosZ));
+	aElectricGraphics.SetColor(Color(220, 255, 255));
+	int aX = static_cast<int>(mPosX) + 12;
+	int aY = static_cast<int>(mPosY + mPosZ) + 12;
+	int aFlicker = (mProjectileAge / 3) % 2 == 0 ? 3 : -3;
+	aElectricGraphics.DrawLine(aX - 11, aY, aX - 3, aY + aFlicker);
+	aElectricGraphics.DrawLine(aX - 3, aY + aFlicker, aX + 3, aY - aFlicker);
+	aElectricGraphics.DrawLine(aX + 3, aY - aFlicker, aX + 11, aY);
+}
+
 void Projectile::Draw(Graphics* g)
 {
+	if (IsElectric())
+	{
+		DrawElectric(g);
+		return;
+	}
 	const ProjectileDefinition& aProjectileDef = GetProjectileDef();
 
 	Image* aImage = nullptr;
@@ -1196,6 +1441,8 @@ Rect Projectile::GetProjectileRect()
 
 void Projectile::ConvertToFireball(int theGridX)
 {
+	if (IsElectric()) // Torchwood must not replace electricity with fire/splash damage.
+		return;
 	if (mHitTorchwoodGridX == theGridX)
 		return;
 

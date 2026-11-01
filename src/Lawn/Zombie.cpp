@@ -32,6 +32,7 @@
 #include "Challenge.h"
 #include "Projectile.h"
 #include "../LawnApp.h"
+#include "PvzpLib/PvzpMod.h"
 #include "../Resources.h"
 #include "System/PlayerInfo.h"
 #include "System/Zombatar.h"
@@ -131,9 +132,25 @@ static ZombieType gBossZombieList[] = {
 const ZombieDefinition& GetZombieDefinition(ZombieType theZombieType)
 {
 	PVZP_ASSERT(theZombieType >= 0 && theZombieType < NUM_ZOMBIE_TYPES);
-	PVZP_ASSERT(gZombieDefs[theZombieType].mZombieType == theZombieType);
 
-	return gZombieDefs[theZombieType];
+	// PvzpMod：同上，僵尸表也走一份可覆盖副本
+	static ZombieDefinition aModdedDefs[NUM_ZOMBIE_TYPES];
+	static bool aModsApplied = false;
+	if (!aModsApplied)
+	{
+		aModsApplied = true;
+		for (int i = 0; i < NUM_ZOMBIE_TYPES; i++)
+		{
+			aModdedDefs[i] = gZombieDefs[i];
+			const char* aName = aModdedDefs[i].mZombieName;
+			aModdedDefs[i].mPickWeight = PvzpMod::ZombieInt(aName, "pickWeight", aModdedDefs[i].mPickWeight);
+			aModdedDefs[i].mZombieValue = PvzpMod::ZombieInt(aName, "value", aModdedDefs[i].mZombieValue);
+			aModdedDefs[i].mStartingLevel = PvzpMod::ZombieInt(aName, "startingLevel", aModdedDefs[i].mStartingLevel);
+		}
+	}
+
+	PVZP_ASSERT(aModdedDefs[theZombieType].mZombieType == theZombieType);
+	return aModdedDefs[theZombieType];
 }
 
 Zombie::Zombie()
@@ -883,6 +900,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		ReanimShowPrefix("anim_tongue", RENDER_GROUP_NORMAL);
 	}
 
+	mBodyHealth = PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "health", mBodyHealth);
 	mBodyMaxHealth = mBodyHealth;
 	mHelmMaxHealth = mHelmHealth;
 	mShieldMaxHealth = mShieldHealth;

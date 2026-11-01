@@ -25,6 +25,7 @@
 #include <format>
 #include "LawnApp.h"
 #include "Resources.h"
+#include "PvzpLib/PvzpMod.h"
 #include "Lawn/LawnCommon.h"
 #include "Lawn/Board.h"
 #include "Lawn/Plant.h"
@@ -1168,6 +1169,7 @@ void LawnApp::Init()
 		mAppRandSeed = mRandSeed; // demo sessions derive the app-level seed from the recorded one
 
 	Sexy::MkDir(Sexy::GetAppDataPath("userdata"));
+	PvzpMod::Init();
 #ifdef PVZ_DEBUG
 	Sexy::RegisterLogFileSink(Sexy::GetAppDataPath("userdata/") + "log.txt");
 	PvzpLogLn("Started {}", static_cast<uint64_t>(std::time(nullptr)));

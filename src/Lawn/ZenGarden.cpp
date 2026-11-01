@@ -2174,7 +2174,8 @@ void ZenGarden::SetPlantAnimSpeed(Plant* thePlant)
 	float aTargetRate;
 	if (thePlant->mSeedType == SeedType::SEED_PEASHOOTER || thePlant->mSeedType == SeedType::SEED_SNOWPEA || thePlant->mSeedType == SeedType::SEED_REPEATER ||
 		thePlant->mSeedType == SeedType::SEED_LEFTPEATER || thePlant->mSeedType == SeedType::SEED_GATLINGPEA || thePlant->mSeedType == SeedType::SEED_SPLITPEA ||
-		thePlant->mSeedType == SeedType::SEED_THREEPEATER || thePlant->mSeedType == SeedType::SEED_MARIGOLD)
+		thePlant->mSeedType == SeedType::SEED_THREEPEATER || thePlant->mSeedType == SeedType::SEED_MARIGOLD ||
+		thePlant->mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
 	{
 		aTargetRate = RandRangeFloat(15.0f, 20.0f);
 	}
