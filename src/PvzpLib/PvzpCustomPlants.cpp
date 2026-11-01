@@ -131,10 +131,12 @@ void DrawBox(Sexy::Graphics* g, Plant* p)
 	const auto* c = Config(p->mSeedType);
 	if (!c || p->mDead) return;
 	if (c->tint != "gold" && c->tint != "blue") return; // present-box look for the two box nuts
-	int y = p->mY + 10 - static_cast<int>(PlantDrawHeightOffset(p->mBoard, p, p->mSeedType, p->mPlantCol, p->mRow));
+	// Plant::Draw runs in local plant space (GameObject translated by mX/mY).
 	g->SetColorizeImages(true);
 	g->SetColor(TintColor(c->tint));
-	g->DrawImage(Sexy::IMAGE_PRESENT, p->mX + 12, y + 12);
+	g->SetScale(0.92f, 0.92f, 0.0f, 0.0f);
+	g->DrawImage(Sexy::IMAGE_PRESENT, -2, -8);
+	g->SetScale(1.0f, 1.0f, 0.0f, 0.0f);
 	g->SetColorizeImages(false);
 }
 }
