@@ -178,6 +178,12 @@ SeedChooserScreen::SeedChooserScreen()
 		aChosenSeed.mImitaterType = SEED_NONE;
 		aChosenSeed.mCrazyDavePicked = false;
 	}
+	for (int aIdx = int(NUM_SEEDS_IN_CHOOSER); aIdx < int(NUM_SEED_TYPES); ++aIdx)
+	{
+		ChosenSeed& aHidden = mChosenSeeds[aIdx];
+		aHidden.mSeedType = static_cast<SeedType>(aIdx);
+		aHidden.mSeedState = SEED_PACKET_HIDDEN;
+	}
 	for (SeedType aCustom = SEED_CUSTOM_0; aCustom <= SEED_CUSTOM_3; aCustom = (SeedType)(aCustom + 1))
 	{
 		ChosenSeed& aChosenSeed = mChosenSeeds[aCustom];
@@ -632,9 +638,9 @@ void SeedChooserScreen::Update()
 	mSeedChooserAge++;
 	mToolTip->Update();
 
-	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
+	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEED_TYPES; aSeedType = (SeedType)(aSeedType + 1))
 	{
-		if (mApp->HasSeedType(aSeedType))
+		if (ChooserHasSeed(aSeedType))
 		{
 			ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 			if (aChosenSeed.mSeedState == SEED_FLYING_TO_BANK || aChosenSeed.mSeedState == SEED_FLYING_TO_CHOOSER)
@@ -826,7 +832,7 @@ void SeedChooserScreen::PickRandomSeeds()
 		aChosenSeed.mSeedIndexInBank = anIndex;
 		mSeedsInBank++;
 	}
-	for (SeedType aSeedFlying = SEED_PEASHOOTER; aSeedFlying < NUM_SEEDS_IN_CHOOSER; aSeedFlying = (SeedType)(aSeedFlying + 1))
+	for (SeedType aSeedFlying = SEED_PEASHOOTER; aSeedFlying < NUM_SEED_TYPES; aSeedFlying = (SeedType)(aSeedFlying + 1))
 		LandFlyingSeed(mChosenSeeds[aSeedFlying]);
 	CloseSeedChooser();
 }
@@ -1112,18 +1118,17 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 
 	if (GetPageButtonRect().Contains(x, y))
 	{
-		if (mSeedsInFlight <= 0)
-		{
-			mChooserPage = mChooserPage == 0 ? 1 : 0;
-			mApp->PlaySample(Sexy::SOUND_TAP);
-			RemoveToolTip();
-		}
+		for (int i = 0; i < int(NUM_SEED_TYPES); ++i)
+			LandFlyingSeed(mChosenSeeds[i]);
+		mChooserPage = mChooserPage == 0 ? 1 : 0;
+		mApp->PlaySample(Sexy::SOUND_TAP);
+		RemoveToolTip();
 		return;
 	}
 
 	if (mSeedsInFlight > 0)
 	{
-		for (int i = 0; i < NUM_SEEDS_IN_CHOOSER; i++)
+		for (int i = 0; i < int(NUM_SEED_TYPES); i++)
 		{
 			LandFlyingSeed(mChosenSeeds[i]);
 		}

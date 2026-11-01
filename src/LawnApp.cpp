@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <format>
 #include "LawnApp.h"
+#include <cstdlib>
 #include "Resources.h"
 #include "PvzpLib/PvzpMod.h"
 #include "Lawn/LawnCommon.h"
@@ -1200,6 +1201,20 @@ void LawnApp::Init()
 	if (mPlayerInfo == nullptr)
 	{
 		mPlayerInfo = mProfileMgr->GetAnyProfile();
+	}
+
+	// Dev-only: PVZP_DEV_UNLOCK=1 makes a fresh profile fully unlocked so the
+	// seed chooser / survival screens can be inspected without playing through
+	// the tutorial levels.
+	if (std::getenv("PVZP_DEV_UNLOCK") && mPlayerInfo)
+	{
+		mPlayerInfo->mFinishedAdventure = std::max(mPlayerInfo->mFinishedAdventure, 1U);
+		mPlayerInfo->mHasUnlockedMinigames = 1;
+		mPlayerInfo->mHasUnlockedPuzzleMode = 1;
+		mPlayerInfo->mHasUnlockedSurvivalMode = 1;
+		for (int i = STORE_ITEM_PLANT_GATLINGPEA; i <= STORE_ITEM_PLANT_IMITATER; ++i)
+			mPlayerInfo->mPurchases[i] = std::max(mPlayerInfo->mPurchases[i], 1U);
+		mPlayerInfo->SaveDetails();
 	}
 
 	mMaxExecutions = GetInteger("MaxExecutions", 0);

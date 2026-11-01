@@ -1631,6 +1631,10 @@ void Board::InitLawnMowers()
 
 bool Board::ChooseSeedsOnCurrentLevel()
 {
+	// Dev-only hook: force the seed chooser on any level so the picker can be
+	// inspected without unlocking a profile (PVZP_DEV_CHOOSER=1).
+	if (std::getenv("PVZP_DEV_CHOOSER"))
+		return true;
 	if (mApp->IsChallengeWithoutSeedBank() || HasConveyorBeltSeedBank())
 		return false;
 
