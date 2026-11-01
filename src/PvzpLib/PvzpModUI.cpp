@@ -71,7 +71,7 @@ std::string Label(Board* b,int i){
 }
 void SeedStep(UIState& s,int dir)
 {
-	static const int aSeeds[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,53,54,55};
+	static const int aSeeds[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,53,200,201,202,203};
 	const int aCount = static_cast<int>(sizeof(aSeeds)/sizeof(aSeeds[0]));
 	int aIndex = 0;
 	for (int i = 0; i < aCount; ++i) if (aSeeds[i] == s.seed) { aIndex = i; break; }

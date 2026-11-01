@@ -2700,6 +2700,10 @@ void Plant::UpdateReanimColor()
 	{
 		aColorOverride = Color(255, 64, 64);
 	}
+	else if (mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
+	{
+		aColorOverride = Color(110, 245, 190); // cyan-green electric body
+	}
 	else
 	{
 		aColorOverride = Color(255, 255, 255);
