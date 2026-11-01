@@ -43,7 +43,7 @@
 #include "../PvzpLib/PvzpModTools.h"
 #include "../PvzpLib/PvzpPlantFood.h"
 #include "../PvzpLib/PvzpModUI.h"
-#include "../PvzpLib/PvzpBoxNut.h"
+#include "../PvzpLib/PvzpCustomPlants.h"
 #include "../PvzpLib/PvzpFoley.h"
 #include "Widget/SeedChooserScreen.h"
 #include "../PvzpLib/Attachment.h"
@@ -5864,7 +5864,7 @@ void Board::Update()
 #endif
 	if (CanUseModTools())
 		UpdateModGameplay();
-	PvzpBoxNut::Update(this);
+	PvzpCustomPlants::Update(this);
 	UpdateGridItems();
 	UpdateFwoosh();
 	UpdateGame();

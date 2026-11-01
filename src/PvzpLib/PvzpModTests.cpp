@@ -360,6 +360,22 @@ void FunPacks(Checks& t, const fs::path& tmp) {
         "leaving the themed directory clears their rules");
 }
 
+void CustomPlantPack(Checks& t, const fs::path& tmp) {
+    const fs::path root = tmp / "custom";
+    CopyFixture(root, "70-box-nuts", "70-box-nuts");
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::Diagnostics().empty(),
+        "custom plant pack loads without diagnostics");
+    const auto& list = PvzpMod::CustomPlants();
+    t.Check(list.size() == 2 && list[0].slot == 0 && list[0].cost == 200 &&
+        list[0].health == 6000 && list[0].events.size() == 5,
+        "mystery box fields parsed from mod json");
+    t.Check(list[1].slot == 1 && list[1].cost == 0 && list[1].badChance == 50 &&
+        list[1].badEvents.size() == 5,
+        "reverse box fields parsed from mod json");
+    t.Check(PvzpMod::LoadFromDirectory(tmp / "no-custom") && PvzpMod::CustomPlants().empty(),
+        "leaving the custom directory clears definitions");
+}
+
 void PathsAndMissing(Checks& t, const fs::path& tmp) {
     const fs::path absent = tmp / "no-such-mods";
     (void)PvzpMod::LoadFromDirectory(absent); // Missing directory is allowed, regardless of scan status.
@@ -407,6 +423,7 @@ int PvzpModRunTests() {
         DuplicateAndDisabled(t, scratch.dir);
         SamplePacks(t, scratch.dir);
         FunPacks(t, scratch.dir);
+        CustomPlantPack(t, scratch.dir);
         PathsAndMissing(t, scratch.dir);
     } catch (const std::exception& error) {
         t.Check(false, error.what());

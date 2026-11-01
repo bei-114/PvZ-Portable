@@ -32,7 +32,7 @@
 #include "../LawnApp.h"
 #include "PvzpLib/PvzpMod.h"
 #include "PvzpLib/PvzpPlantFood.h"
-#include "PvzpLib/PvzpBoxNut.h"
+#include "PvzpLib/PvzpCustomPlants.h"
 #include "CursorObject.h"
 #include "../GameConstants.h"
 #include "System/PlayerInfo.h"
@@ -104,8 +104,10 @@ constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
 	{ .mSeedType = SeedType::SEED_SPROUT,            .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_ZENGARDEN_SPROUT, .mPacketIndex = 33, .mSeedCost = 0,   .mRefreshTime = 3000,   .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "SPROUT" },
 	{ .mSeedType = SeedType::SEED_LEFTPEATER,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_REPEATER,      .mPacketIndex = 5,  .mSeedCost = 200, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 150,  .mPlantName = "REPEATER" },
 	{ .mSeedType = SeedType::SEED_ELECTRIC_GATLINGPEA, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_GATLINGPEA, .mPacketIndex = 5, .mSeedCost = 300, .mRefreshTime = 5000, .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 45, .mPlantName = "ELECTRIC_GATLING_PEA" },
-	{ .mSeedType = SeedType::SEED_MYSTERY_NUT,       .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT,       .mPacketIndex = 2,  .mSeedCost = 200, .mRefreshTime = 3000,   .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "MYSTERY_NUT" },
-	{ .mSeedType = SeedType::SEED_REVERSE_NUT,       .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT,       .mPacketIndex = 2,  .mSeedCost = 0,   .mRefreshTime = 3000,   .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "REVERSE_NUT" }
+	{ .mSeedType = SeedType::SEED_CUSTOM_0, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_0" },
+	{ .mSeedType = SeedType::SEED_CUSTOM_1, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_1" },
+	{ .mSeedType = SeedType::SEED_CUSTOM_2, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_2" },
+	{ .mSeedType = SeedType::SEED_CUSTOM_3, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_3" }
 };
 
 Plant::Plant()
@@ -179,8 +181,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 		if (mApp->IsWallnutBowlingLevel() && aBodyReanim->TrackExists("_ground"))
 		{
 			aBodyReanim->SetFramesForLayer("_ground");
-			if (mSeedType == SeedType::SEED_WALLNUT || mSeedType == SeedType::SEED_EXPLODE_O_NUT ||
-				mSeedType == SeedType::SEED_MYSTERY_NUT || mSeedType == SeedType::SEED_REVERSE_NUT)
+			if (mSeedType == SeedType::SEED_WALLNUT || mSeedType == SeedType::SEED_EXPLODE_O_NUT)
 				aBodyReanim->mAnimRate = RandRangeFloat(12.0f, 18.0f);
 			else if (mSeedType == SeedType::SEED_GIANT_WALLNUT)
 				aBodyReanim->mAnimRate = RandRangeFloat(6.0f, 10.0f);
@@ -188,9 +189,15 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 
 		aBodyReanim->mIsAttachment = true;
 		mBodyReanimID = mApp->ReanimationGetID(aBodyReanim);
+		if (PvzpCustomPlants::IsCustom(theSeedType)) PvzpCustomPlants::ApplyVisuals(this);
 		mBlinkCountdown = 400 + Sexy::Rand(400);
 	}
 
+	if (PvzpCustomPlants::IsCustom(mSeedType))
+	{
+		mPlantHealth = PvzpCustomPlants::HealthForSeed(mSeedType);
+		mPlantMaxHealth = mPlantHealth;
+	}
 	if (IsNocturnal(mSeedType) && mBoard && !mBoard->StageIsNight())
 		SetSleeping(true);
 
@@ -295,9 +302,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 		break;
 	}
 	case SeedType::SEED_WALLNUT:
-	case SeedType::SEED_MYSTERY_NUT:
-	case SeedType::SEED_REVERSE_NUT:
-		mPlantHealth = mSeedType == SeedType::SEED_WALLNUT ? 4000 : 6000;
+		mPlantHealth = 4000;
 		mBlinkCountdown = 1000 + Sexy::Rand(1000);
 		break;
 	case SeedType::SEED_EXPLODE_O_NUT:
@@ -3969,7 +3974,7 @@ void Plant::DrawShadow(Sexy::Graphics* g, float theOffsetX, float theOffsetY)
 
 void Plant::Draw(Graphics* g)
 {
-	PvzpBoxNut::DrawBox(g, this);
+	PvzpCustomPlants::DrawBox(g, this);
 	float aOffsetX = 0.0f;
 	float aOffsetY = PlantDrawHeightOffset(mBoard, this, mSeedType, mPlantCol, mRow);
 	if (Plant::IsFlying(mSeedType) && mSquished)
@@ -5040,6 +5045,8 @@ const PlantDefinition& GetPlantDefinition(SeedType theSeedType)
 			aModdedDefs[i].mSeedCost = PvzpMod::PlantInt(aName, "cost", aModdedDefs[i].mSeedCost);
 			aModdedDefs[i].mRefreshTime = PvzpMod::PlantInt(aName, "refresh", aModdedDefs[i].mRefreshTime);
 			aModdedDefs[i].mLaunchRate = PvzpMod::PlantInt(aName, "launchRate", aModdedDefs[i].mLaunchRate);
+			if (PvzpCustomPlants::IsCustom(static_cast<SeedType>(i)))
+				aModdedDefs[i].mSeedCost = PvzpCustomPlants::CostForSeed(static_cast<SeedType>(i), aModdedDefs[i].mSeedCost);
 		}
 	}
 

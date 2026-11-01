@@ -31,6 +31,7 @@
 #include "../System/Music.h"
 #include "../../Resources.h"
 #include "../../Lawn/Plant.h"
+#include "../../PvzpLib/PvzpMod.h"
 #include "../ToolTipWidget.h"
 #include "SeedChooserScreen.h"
 #include "../../GameConstants.h"
@@ -348,6 +349,68 @@ Rect SeedChooserScreen::GetPageButtonRect() const
 {
 	return Rect(300, 512, 200, 34);
 }
+SeedType SeedChooserScreen::ModPageSeed(int theIndex)
+{
+	static const SeedType aSeeds[] = { SEED_GATLINGPEA, SEED_TWINSUNFLOWER, SEED_GLOOMSHROOM, SEED_CATTAIL,
+		SEED_WINTERMELON, SEED_GOLD_MAGNET, SEED_SPIKEROCK, SEED_COBCANNON,
+		SEED_CUSTOM_0, SEED_CUSTOM_1, SEED_CUSTOM_2, SEED_CUSTOM_3 };
+	return theIndex >= 0 && theIndex < ModPageCount() ? aSeeds[theIndex] : SEED_NONE;
+}
+int SeedChooserScreen::ModPageCount() { return 12; }
+static bool ModSlotActive(SeedType theSeed)
+{
+	if (theSeed < SEED_CUSTOM_0 || theSeed > SEED_CUSTOM_3) return true;
+	int aSlot = int(theSeed) - int(SEED_CUSTOM_0);
+	for (const auto& c : PvzpMod::CustomPlants()) if (c.slot == aSlot) return true;
+	return false;
+}
+Rect SeedChooserScreen::GetModTileRect(int theIndex) const
+{
+	int aCol = theIndex % 6, aRow = theIndex / 6;
+	return Rect(86 + aCol * 108, 196 + aRow * 108, 100, 86);
+}
+bool SeedChooserScreen::ModPageMouseDown(int x, int y)
+{
+	for (int i = 0; i < ModPageCount(); ++i)
+	{
+		if (!GetModTileRect(i).Contains(x, y))
+			continue;
+		SeedType aSeed = ModPageSeed(i);
+		if (!ModSlotActive(aSeed)) continue;
+		ChosenSeed& aChosenSeed = mChosenSeeds[aSeed];
+		if (aChosenSeed.mSeedState == SEED_IN_CHOOSER)
+		{
+			aChosenSeed.mX = GetModTileRect(i).mX;
+			aChosenSeed.mY = GetModTileRect(i).mY;
+			ClickedSeedInChooser(aChosenSeed);
+		}
+		else if (aChosenSeed.mSeedState == SEED_IN_BANK)
+			ClickedSeedInBank(aChosenSeed);
+		return true;
+	}
+	return false;
+}
+void SeedChooserScreen::DrawModPage(Graphics* g)
+{
+	g->SetColor(Color(18, 30, 24, 215));
+	g->FillRect(70, 150, 660, 300);
+	PvzpDrawString(g, "MOD PLANTS", 400, 178, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color(255, 226, 140), DS_ALIGN_CENTER);
+	for (int i = 0; i < ModPageCount(); ++i)
+	{
+		SeedType aSeed = ModPageSeed(i);
+		if (!ModSlotActive(aSeed)) continue;
+		Rect aTile = GetModTileRect(i);
+		g->SetColor(Color(44, 36, 12, 235));
+		g->FillRect(aTile);
+		g->SetColor(Color(214, 172, 74));
+		g->DrawRect(aTile);
+		ChosenSeed& aChosenSeed = mChosenSeeds[aSeed];
+		int aDrawX = aChosenSeed.mSeedState == SEED_IN_BANK ? aChosenSeed.mX : aTile.mX + 7;
+		int aDrawY = aChosenSeed.mSeedState == SEED_IN_BANK ? aChosenSeed.mY : aTile.mY + 6;
+		DrawSeedPacket(g, aDrawX, aDrawY, aSeed, SEED_NONE, aChosenSeed.mSeedState == SEED_IN_BANK ? 100 : 0, 0, true, true);
+	}
+}
+
 void SeedChooserScreen::Draw(Graphics* g)
 {
 	if (mApp->GetDialog(DIALOG_STORE) || mApp->GetDialog(DIALOG_ALMANAC))
@@ -365,17 +428,21 @@ void SeedChooserScreen::Draw(Graphics* g)
 	// the localization key name is wrong
 	PvzpDrawString(g, "[CHOOSE_YOUR_PLANTS]", 229, 110, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color::White, DS_ALIGN_CENTER);
 
-	int aNumSeeds = Has7Rows() ? 48 : 40;
+	if (mChooserPage == 1)
+	{
+		DrawModPage(g);
+	}
+	int aNumSeeds = mChooserPage == 1 ? 0 : (Has7Rows() ? 48 : 40);
 	for (SeedType aSeedShadow = SEED_PEASHOOTER; aSeedShadow < aNumSeeds; aSeedShadow = (SeedType)(aSeedShadow + 1))
 	{
 		int x, y;
 		GetSeedPositionInChooser(aSeedShadow, x, y);
-		if (aSeedShadow == SEED_IMITATER || !OnChooserPage(aSeedShadow))
+		if (aSeedShadow == SEED_IMITATER)
 		{
 			continue;
 		}
 
-		if (ChooserHasSeed(aSeedShadow))
+		if (mApp->HasSeedType(aSeedShadow))
 		{
 			ChosenSeed& aChosenSeed = mChosenSeeds[aSeedShadow];
 			if (aChosenSeed.mSeedState != SEED_IN_CHOOSER)
@@ -404,7 +471,8 @@ void SeedChooserScreen::Draw(Graphics* g)
 	{
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 		ChosenSeedState aSeedState = aChosenSeed.mSeedState;
-		if (ChooserHasSeed(aSeedType) && OnChooserPage(aSeedType) && aSeedState != SEED_FLYING_TO_BANK && aSeedState != SEED_FLYING_TO_CHOOSER &&
+		if (mChooserPage == 1 && aSeedState == SEED_IN_CHOOSER) continue;
+		if (mApp->HasSeedType(aSeedType) && aSeedState != SEED_FLYING_TO_BANK && aSeedState != SEED_FLYING_TO_CHOOSER &&
 			aSeedState != SEED_PACKET_HIDDEN && (aSeedState == SEED_IN_CHOOSER || mBoard->mCutScene->mSeedChoosing))
 		{
 			bool aGrayed = false;
@@ -428,7 +496,7 @@ void SeedChooserScreen::Draw(Graphics* g)
 	{
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 		ChosenSeedState aSeedState = aChosenSeed.mSeedState;
-		if (ChooserHasSeed(aSeedType) && (aSeedState == SEED_FLYING_TO_BANK || aSeedState == SEED_FLYING_TO_CHOOSER))
+		if (mApp->HasSeedType(aSeedType) && (aSeedState == SEED_FLYING_TO_BANK || aSeedState == SEED_FLYING_TO_CHOOSER))
 		{
 			DrawSeedPacket(g, aChosenSeed.mX, aChosenSeed.mY, aChosenSeed.mSeedType, aChosenSeed.mImitaterType, 0, 255, true, false);
 		}
@@ -812,7 +880,7 @@ SeedType SeedChooserScreen::SeedHitTest(int x, int y)
 		for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
 		{
 			ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
-			if (!ChooserHasSeed(aSeedType) || !OnChooserPage(aSeedType) || aChosenSeed.mSeedState == SEED_PACKET_HIDDEN) continue;
+			if (mApp->HasSeedType(aSeedType) && OnChooserPage(aSeedType) && aChosenSeed.mSeedState != SEED_PACKET_HIDDEN) ; else continue;
 			if (Rect(aChosenSeed.mX, aChosenSeed.mY, SEED_PACKET_WIDTH, SEED_PACKET_HEIGHT).Contains(x, y)) return aSeedType;
 		}
 	}
@@ -823,7 +891,7 @@ SeedType SeedChooserScreen::FindSeedInBank(int theIndexInBank)
 {
 	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
 	{
-		if (ChooserHasSeed(aSeedType))
+		if (mApp->HasSeedType(aSeedType) || IsModSeed(aSeedType))
 		{
 			ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 			if (aChosenSeed.mSeedState == SEED_IN_BANK && aChosenSeed.mSeedIndexInBank == theIndexInBank) return aSeedType;
@@ -1037,6 +1105,9 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 			LandFlyingSeed(mChosenSeeds[i]);
 		}
 	}
+
+	if (mChooserPage == 1 && mSeedsInFlight <= 0 && ModPageMouseDown(x, y))
+		return;
 
 	if (mChooseState == CHOOSE_VIEW_LAWN)
 	{

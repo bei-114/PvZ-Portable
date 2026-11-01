@@ -282,9 +282,10 @@ namespace
 
 	/* Snapshot built once before definitions cache; queries remain cheap. */
 	using Map=std::map<std::string,int>;
-	struct Loaded { PvzpMod::ModInfo info; Map plants,zombies,globals; };
+	struct Loaded { PvzpMod::ModInfo info; Map plants,zombies,globals; std::vector<PvzpMod::CustomPlant> customs; };
 	std::vector<Loaded> gModules;
 	std::vector<PvzpMod::ModInfo> gInfos;
+	std::vector<PvzpMod::CustomPlant> gCustomPlants;
 	std::vector<PvzpMod::Diagnostic> gDiagnostics;
 	Map gPlantValues,gZombieValues,gGlobalValues;
 	bool gInitialized=false;
@@ -365,6 +366,30 @@ namespace
 				mod.info.enabled=v.mBool;
 			}else if(key=="plants"||key=="zombies"){
 				if(!Section(v,key=="plants",key=="plants"?mod.plants:mod.zombies,error))return false;
+			}else if(key=="customPlants"){
+				if(v.mType!=JsonValue::Type::Array){error="customPlants must be an array";return false;}
+				std::set<int> slots;
+				for(const auto& e:v.mArray){
+					if(e.mType!=JsonValue::Type::Object){error="customPlants entry must be an object";return false;}
+					PvzpMod::CustomPlant c;
+					for(const auto& [k,val]:e.mObject){
+						if(k=="slot"){if(!Integer(val,0,3,c.slot)){error="customPlants.slot";return false;}}
+						else if(k=="name"||k=="tint"){if(val.mType!=JsonValue::Type::String||val.mString.empty()||val.mString.size()>40){error="customPlants."+k;return false;}
+							if(k=="name")c.name=val.mString;else c.tint=val.mString;}
+						else if(k=="cost"){if(!Integer(val,0,9990,c.cost)){error="customPlants.cost";return false;}}
+						else if(k=="health"){if(!Integer(val,1,10000000,c.health)){error="customPlants.health";return false;}}
+						else if(k=="step"){if(!Integer(val,100,10000,c.step)){error="customPlants.step";return false;}}
+						else if(k=="badChance"){if(!Integer(val,0,100,c.badChance)){error="customPlants.badChance";return false;}}
+						else if(k=="events"||k=="badEvents"){
+							if(val.mType!=JsonValue::Type::Array||val.mArray.size()>16){error="customPlants."+k;return false;}
+							std::vector<std::string> list;
+							for(const auto& item:val.mArray){if(item.mType!=JsonValue::Type::String||item.mString.empty()||item.mString.size()>40){error="customPlants event token";return false;}list.push_back(item.mString);}
+							if(k=="events")c.events=list;else c.badEvents=list;
+						}else{error="unknown customPlants field: "+k;return false;}
+					}
+					if(c.slot<0||c.name.empty()||!slots.insert(c.slot).second){error="customPlants slot/name/duplicate";return false;}
+					mod.customs.push_back(std::move(c));
+				}
 			}else if(key=="globals"){
 				if(v.mType!=JsonValue::Type::Object){error="globals must be an object";return false;}
 				for(const auto& [k,val]:v.mObject){int n=0;
@@ -377,11 +402,12 @@ namespace
 		return true;
 	}
 	void Rebuild(){
-		gPlantValues.clear();gZombieValues.clear();gGlobalValues.clear();gInfos.clear();
+		gPlantValues.clear();gZombieValues.clear();gGlobalValues.clear();gInfos.clear();gCustomPlants.clear();
 		for(const auto& m:gModules){gInfos.push_back(m.info);if(!m.info.enabled)continue;
 			for(const auto& [k,v]:m.plants)gPlantValues[k]=v;
 			for(const auto& [k,v]:m.zombies)gZombieValues[k]=v;
 			for(const auto& [k,v]:m.globals)gGlobalValues[k]=v;
+			for(const auto& c:m.customs){auto it=std::find_if(gCustomPlants.begin(),gCustomPlants.end(),[&](const PvzpMod::CustomPlant& x){return x.slot==c.slot;});if(it!=gCustomPlants.end())*it=c;else gCustomPlants.push_back(c);}
 		}
 	}
 }
@@ -430,6 +456,7 @@ namespace PvzpMod {
  bool SetEnabled(std::string_view id,bool enabled){for(auto& m:gModules)if(m.info.id==id){m.info.enabled=enabled;Rebuild();return true;}return false;}
  const std::vector<ModInfo>& List(){return gInfos;}
  const std::vector<Diagnostic>& Diagnostics(){return gDiagnostics;}
+ const std::vector<CustomPlant>& CustomPlants(){return gCustomPlants;}
  uint64_t RulesFingerprint(){
 	 uint64_t h=14695981039346656037ULL;
 	 auto add=[&](std::string_view s){for(unsigned char c:s){h^=c;h*=1099511628211ULL;}h^=0;h*=1099511628211ULL;};

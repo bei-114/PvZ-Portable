@@ -97,6 +97,11 @@ public:
 	bool                    ChooserHasSeed(SeedType theSeedType) const;
 	bool                    OnChooserPage(SeedType theSeedType) const;
 	Rect                    GetPageButtonRect() const;
+	static SeedType         ModPageSeed(int theIndex);
+	static int              ModPageCount();
+	Rect                    GetModTileRect(int theIndex) const;
+	bool                    ModPageMouseDown(int x, int y);
+	void                    DrawModPage(Graphics* g);
 
 public:
 	SeedChooserScreen();

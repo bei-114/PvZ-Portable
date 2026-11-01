@@ -14,6 +14,14 @@ namespace PvzpMod
 {
 	struct ModInfo { std::string id, name, folder; int priority=0; bool enabled=true; };
 	struct Diagnostic { std::string folder, message; };
+	struct CustomPlant
+	{
+		int slot = -1;
+		std::string name, tint;
+		int cost = 0, health = 6000, step = 1000, badChance = 0;
+		std::vector<std::string> events, badEvents;
+	};
+	const std::vector<CustomPlant>& CustomPlants();
 	void Init();
 	// Test tool: resets the mod snapshot. Not a gameplay hot-reload API.
 	bool LoadFromDirectory(const std::filesystem::path& theDirectory);

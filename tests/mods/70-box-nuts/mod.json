@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.box-nuts",
+  "name": "Box Nuts",
+  "priority": 70,
+  "enabled": true,
+  "customPlants": [
+    {
+      "slot": 0,
+      "name": "Mystery Box Nut",
+      "tint": "gold",
+      "cost": 200,
+      "health": 6000,
+      "step": 1000,
+      "events": ["sun:150", "plant:random", "heal:1200", "chill", "sun:75"]
+    },
+    {
+      "slot": 1,
+      "name": "Reverse Box Nut",
+      "tint": "blue",
+      "cost": 0,
+      "health": 6000,
+      "step": 1000,
+      "events": ["sun:100", "plant:random", "heal:800"],
+      "badEvents": ["zombie:GARGANTUAR", "zombie:BUNGEE", "zombie:DIGGER", "destroy:plant", "zombie:BALLOON"],
+      "badChance": 50
+    }
+  ]
+}
