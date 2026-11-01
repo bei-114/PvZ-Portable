@@ -4395,6 +4395,18 @@ void Board::MouseDown(int x, int y, int theClickCount)
 		mPlantFoodSelecting=false;mDbgPlantPending=false;mDbgOpen=false;
 		PvzpModTools::MouseDown(this,x,y);return;
 	}
+	if (theClickCount > 0 && mCursorObject->mCursorType == CursorType::CURSOR_TYPE_NORMAL)
+	{
+		int aBrainCol = PixelToGridX(x, y);
+		int aBrainRow = PixelToGridY(x, y);
+		Plant* aBrain = (aBrainCol >= 0 && aBrainRow >= 0) ? GetTopPlantAt(aBrainCol, aBrainRow, PlantPriority::TOPPLANT_ANY) : nullptr;
+		if (aBrain && PvzpCustomPlants::IsBrain(aBrain->mSeedType))
+		{
+			PvzpCustomPlants::BrainClick(this, aBrain);
+			mDbgConsumeMouseUp = true;
+			return;
+		}
+	}
 	if (theClickCount > 0 && PlantFoodMouseDown(x, y))
 	{
 		mDbgConsumeMouseUp = true;

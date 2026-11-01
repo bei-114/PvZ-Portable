@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.brain",
+  "name": "Brain",
+  "priority": 80,
+  "enabled": true,
+  "customPlants": [
+    {
+      "slot": 2,
+      "name": "Brain",
+      "behavior": "brain",
+      "tint": "red",
+      "cost": 0,
+      "health": 100,
+      "step": 1000,
+      "events": []
+    }
+  ]
+}

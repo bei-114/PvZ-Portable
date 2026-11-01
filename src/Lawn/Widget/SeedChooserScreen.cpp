@@ -32,6 +32,7 @@
 #include "../../Resources.h"
 #include "../../Lawn/Plant.h"
 #include "../../PvzpLib/PvzpMod.h"
+#include "../../PvzpLib/PvzpCustomPlants.h"
 #include "../ToolTipWidget.h"
 #include "SeedChooserScreen.h"
 #include "../../GameConstants.h"
@@ -197,7 +198,7 @@ SeedChooserScreen::SeedChooserScreen()
 		aChosenSeed.mStartY = aY;
 		aChosenSeed.mEndX = aX;
 		aChosenSeed.mEndY = aY;
-		aChosenSeed.mSeedState = SEED_IN_CHOOSER;
+		aChosenSeed.mSeedState = PvzpCustomPlants::IsSlotUsed(aCustom) ? SEED_IN_CHOOSER : SEED_PACKET_HIDDEN;
 		aChosenSeed.mSeedIndexInBank = 0;
 		aChosenSeed.mRefreshCounter = 0;
 		aChosenSeed.mRefreshing = false;

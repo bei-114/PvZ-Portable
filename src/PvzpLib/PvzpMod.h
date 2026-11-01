@@ -17,7 +17,7 @@ namespace PvzpMod
 	struct CustomPlant
 	{
 		int slot = -1;
-		std::string name, tint;
+		std::string name, tint, behavior = "nut";
 		int cost = 0, health = 6000, step = 1000, badChance = 0;
 		std::vector<std::string> events, badEvents;
 	};

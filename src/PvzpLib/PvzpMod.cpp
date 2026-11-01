@@ -374,8 +374,10 @@ namespace
 					PvzpMod::CustomPlant c;
 					for(const auto& [k,val]:e.mObject){
 						if(k=="slot"){if(!Integer(val,0,3,c.slot)){error="customPlants.slot";return false;}}
-						else if(k=="name"||k=="tint"){if(val.mType!=JsonValue::Type::String||val.mString.empty()||val.mString.size()>40){error="customPlants."+k;return false;}
-							if(k=="name")c.name=val.mString;else c.tint=val.mString;}
+						else if(k=="name"||k=="tint"||k=="behavior"){if(val.mType!=JsonValue::Type::String||val.mString.empty()||val.mString.size()>40){error="customPlants."+k;return false;}
+							if(k=="name")c.name=val.mString;
+							else if(k=="tint")c.tint=val.mString;
+							else {if(val.mString!="nut"&&val.mString!="brain"){error="customPlants.behavior must be nut or brain";return false;}c.behavior=val.mString;}}
 						else if(k=="cost"){if(!Integer(val,0,9990,c.cost)){error="customPlants.cost";return false;}}
 						else if(k=="health"){if(!Integer(val,1,10000000,c.health)){error="customPlants.health";return false;}}
 						else if(k=="step"){if(!Integer(val,100,10000,c.step)){error="customPlants.step";return false;}}

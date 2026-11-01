@@ -85,6 +85,67 @@ namespace
 namespace PvzpCustomPlants
 {
 bool IsCustom(SeedType t) { return t >= SEED_CUSTOM_0 && t <= SEED_CUSTOM_3; }
+bool IsSlotUsed(SeedType t) { return Config(t) != nullptr; }
+bool IsBrain(SeedType t) { const auto* c = Config(t); return c && c->behavior == "brain"; }
+
+static const ZombieType kSummonPool[] = { ZOMBIE_NORMAL, ZOMBIE_TRAFFIC_CONE, ZOMBIE_PAIL, ZOMBIE_FOOTBALL,
+	ZOMBIE_DOOR, ZOMBIE_LADDER, ZOMBIE_POLEVAULTER, ZOMBIE_NEWSPAPER };
+static const ZombieType kEnemyPool[] = { ZOMBIE_NORMAL, ZOMBIE_TRAFFIC_CONE, ZOMBIE_PAIL, ZOMBIE_FOOTBALL,
+	ZOMBIE_DOOR, ZOMBIE_LADDER, ZOMBIE_POLEVAULTER, ZOMBIE_DIGGER, ZOMBIE_POGO, ZOMBIE_DANCER,
+	ZOMBIE_BALLOON, ZOMBIE_BUNGEE, ZOMBIE_ZAMBONI, ZOMBIE_GARGANTUAR, ZOMBIE_BOSS };
+static std::map<uint32_t, int> gBrainCooldown;
+
+void BrainClick(Board* b, Plant* p)
+{
+	if (!b || !p || p->mDead) return;
+	uint32_t id = b->mPlants.DataArrayGetID(p);
+	if (gBrainCooldown.count(id) && b->mMainCounter - gBrainCooldown[id] < 50) return;
+	gBrainCooldown[id] = b->mMainCounter;
+
+	if (Rand(2) == 0)
+	{
+		// 吸引僵尸：全类型随机，包含僵王
+		int n = int(std::size(kEnemyPool));
+		ZombieType aType = kEnemyPool[Rand(n)];
+		if (aType == ZOMBIE_BOSS)
+			b->AddZombie(ZOMBIE_BOSS, Zombie::ZOMBIE_WAVE_DEBUG);
+		else
+			b->AddZombieInRow(aType, Rand((b->StageHas6Rows() ? 6 : 5)), Zombie::ZOMBIE_WAVE_DEBUG);
+		b->mApp->PlaySample(Sexy::SOUND_ZOMBIE_ENTERING_WATER);
+	}
+	else
+	{
+		int cost = 100 + Rand(401);
+		if (b->mSunMoney < cost) return;
+		b->mSunMoney -= cost;
+		int n = int(std::size(kSummonPool));
+		Zombie* z = b->AddZombieInRow(kSummonPool[Rand(n)], p->mRow, Zombie::ZOMBIE_WAVE_DEBUG);
+		if (z)
+		{
+			z->mPosX = b->GridToPixelX(p->mPlantCol, p->mRow);
+			z->mPosY = z->GetPosYBasedOnRow(p->mRow);
+			z->mMindControlled = true;
+		}
+		b->mApp->PlaySample(Sexy::SOUND_TAP);
+	}
+}
+
+void BrainUltimate(Board* b, Plant* p)
+{
+	if (!b || !p) return;
+	static const ZombieType kUltPool[] = { ZOMBIE_FOOTBALL, ZOMBIE_PAIL, ZOMBIE_TRAFFIC_CONE };
+	int aRows = b->StageHas6Rows() ? 6 : 5;
+	for (int r = 0; r < aRows; ++r)
+		for (int i = 0; i < 5; ++i)
+		{
+			Zombie* z = b->AddZombieInRow(kUltPool[Rand(3)], r, Zombie::ZOMBIE_WAVE_DEBUG);
+			if (!z) continue;
+			z->mPosX = b->GridToPixelX(0, r) + i * 8.0f;
+			z->mPosY = z->GetPosYBasedOnRow(r);
+			z->mMindControlled = true;
+		}
+	b->mApp->PlaySample(Sexy::SOUND_TAP);
+}
 int HealthForSeed(SeedType t) { const auto* c = Config(t); return c ? c->health : 6000; }
 int CostForSeed(SeedType t, int fallback) { const auto* c = Config(t); return c ? c->cost : fallback; }
 void Reset(Board* b) { if (b) gSeen.erase(b); }
@@ -130,6 +191,13 @@ void DrawBox(Sexy::Graphics* g, Plant* p)
 {
 	const auto* c = Config(p->mSeedType);
 	if (!c || p->mDead) return;
+	if (c->behavior == "brain")
+	{
+		g->SetScale(2.0f, 2.0f, 0.0f, 0.0f);
+		g->DrawImage(Sexy::IMAGE_BRAIN, 4, 4);
+		g->SetScale(1.0f, 1.0f, 0.0f, 0.0f);
+		return;
+	}
 	if (c->tint != "gold" && c->tint != "blue") return; // present-box look for the two box nuts
 	// Plant::Draw runs in local plant space (GameObject translated by mX/mY).
 	g->SetColorizeImages(true);

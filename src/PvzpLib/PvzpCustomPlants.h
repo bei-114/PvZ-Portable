@@ -10,6 +10,10 @@ namespace Sexy { class Graphics; }
 namespace PvzpCustomPlants
 {
 bool IsCustom(SeedType theSeedType);
+bool IsBrain(SeedType theSeedType);
+bool IsSlotUsed(SeedType theSeedType);
+void BrainClick(Board* theBoard, Plant* thePlant);
+void BrainUltimate(Board* theBoard, Plant* thePlant);
 int HealthForSeed(SeedType theSeedType);
 int CostForSeed(SeedType theSeedType, int theFallback);
 void ApplyVisuals(Plant* thePlant);      // called after the body reanimation exists
