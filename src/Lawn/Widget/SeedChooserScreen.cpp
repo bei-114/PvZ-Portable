@@ -178,6 +178,23 @@ SeedChooserScreen::SeedChooserScreen()
 		aChosenSeed.mImitaterType = SEED_NONE;
 		aChosenSeed.mCrazyDavePicked = false;
 	}
+	for (SeedType aCustom = SEED_CUSTOM_0; aCustom <= SEED_CUSTOM_3; aCustom = (SeedType)(aCustom + 1))
+	{
+		ChosenSeed& aChosenSeed = mChosenSeeds[aCustom];
+		aChosenSeed.mSeedType = aCustom;
+		aChosenSeed.mX = 0;
+		aChosenSeed.mY = 0;
+		aChosenSeed.mStartX = 0;
+		aChosenSeed.mStartY = 0;
+		aChosenSeed.mEndX = 0;
+		aChosenSeed.mEndY = 0;
+		aChosenSeed.mSeedState = SEED_IN_CHOOSER;
+		aChosenSeed.mSeedIndexInBank = 0;
+		aChosenSeed.mRefreshCounter = 0;
+		aChosenSeed.mRefreshing = false;
+		aChosenSeed.mImitaterType = SEED_NONE;
+		aChosenSeed.mCrazyDavePicked = false;
+	}
 	if (mBoard->mCutScene->IsSurvivalRepick())
 	{
 		for (int anIdx = 0; anIdx < mBoard->mSeedBank->mNumPackets; anIdx++)
@@ -335,7 +352,8 @@ bool SeedChooserScreen::SeedNotAllowedDuringTrial(SeedType theSeedType)
 
 bool SeedChooserScreen::IsModSeed(SeedType theSeedType)
 {
-	return theSeedType >= SEED_GATLINGPEA && theSeedType < SEED_IMITATER;
+	return (theSeedType >= SEED_GATLINGPEA && theSeedType < SEED_IMITATER) ||
+		(theSeedType >= SEED_CUSTOM_0 && theSeedType <= SEED_CUSTOM_3);
 }
 bool SeedChooserScreen::ChooserHasSeed(SeedType theSeedType) const
 {
@@ -351,12 +369,10 @@ Rect SeedChooserScreen::GetPageButtonRect() const
 }
 SeedType SeedChooserScreen::ModPageSeed(int theIndex)
 {
-	static const SeedType aSeeds[] = { SEED_GATLINGPEA, SEED_TWINSUNFLOWER, SEED_GLOOMSHROOM, SEED_CATTAIL,
-		SEED_WINTERMELON, SEED_GOLD_MAGNET, SEED_SPIKEROCK, SEED_COBCANNON,
-		SEED_CUSTOM_0, SEED_CUSTOM_1, SEED_CUSTOM_2, SEED_CUSTOM_3 };
+	static const SeedType aSeeds[] = { SEED_CUSTOM_0, SEED_CUSTOM_1, SEED_CUSTOM_2, SEED_CUSTOM_3 };
 	return theIndex >= 0 && theIndex < ModPageCount() ? aSeeds[theIndex] : SEED_NONE;
 }
-int SeedChooserScreen::ModPageCount() { return 12; }
+int SeedChooserScreen::ModPageCount() { return 4; }
 static bool ModSlotActive(SeedType theSeed)
 {
 	if (theSeed < SEED_CUSTOM_0 || theSeed > SEED_CUSTOM_3) return true;
@@ -366,8 +382,8 @@ static bool ModSlotActive(SeedType theSeed)
 }
 Rect SeedChooserScreen::GetModTileRect(int theIndex) const
 {
-	int aCol = theIndex % 6, aRow = theIndex / 6;
-	return Rect(86 + aCol * 108, 196 + aRow * 108, 100, 86);
+	int aCol = theIndex % 2, aRow = theIndex / 2;
+	return Rect(220 + aCol * 200, 214 + aRow * 112, 180, 100);
 }
 bool SeedChooserScreen::ModPageMouseDown(int x, int y)
 {
@@ -392,20 +408,30 @@ bool SeedChooserScreen::ModPageMouseDown(int x, int y)
 }
 void SeedChooserScreen::DrawModPage(Graphics* g)
 {
-	g->SetColor(Color(18, 30, 24, 235));
-	g->FillRect(70, 150, 660, 300);
-	PvzpDrawString(g, "MOD PLANTS", 400, 178, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color(255, 226, 140), DS_ALIGN_CENTER);
+	g->SetColor(Color(20, 32, 26, 238));
+	g->FillRect(180, 168, 440, 300);
+	g->SetColor(Color(214, 172, 74));
+	g->DrawRect(180, 168, 440, 300);
+	PvzpDrawString(g, "MOD PLANTS", 400, 196, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color(255, 226, 140), DS_ALIGN_CENTER);
 	for (int i = 0; i < ModPageCount(); ++i)
 	{
 		SeedType aSeed = ModPageSeed(i);
 		if (!ModSlotActive(aSeed)) continue;
 		Rect aTile = GetModTileRect(i);
-		g->SetColor(Color(44, 36, 12, 235));
+		ChosenSeed& aChosenSeed = mChosenSeeds[aSeed];
+		const bool aInBank = aChosenSeed.mSeedState == SEED_IN_BANK;
+		g->SetColor(aInBank ? Color(40, 70, 46, 240) : Color(50, 42, 16, 240));
 		g->FillRect(aTile);
-		g->SetColor(Color(214, 172, 74));
+		g->SetColor(Color(224, 186, 92));
 		g->DrawRect(aTile);
-		// grayness 255 keeps the packet art at full colour (0 would tint it black).
-		DrawSeedPacket(g, static_cast<float>(aTile.mX + 10), static_cast<float>(aTile.mY + 4), aSeed, SEED_NONE, 0.0f, 255, true, true);
+		if (!aInBank)
+			DrawSeedPacket(g, static_cast<float>(aTile.mX + 8), static_cast<float>(aTile.mY + 10), aSeed, SEED_NONE, 0.0f, 255, true, true);
+		const int aSlot = int(aSeed) - int(SEED_CUSTOM_0);
+		std::string aName = "MOD PLANT";
+		for (const auto& cp : PvzpMod::CustomPlants()) if (cp.slot == aSlot) aName = cp.name;
+		if (aName.size() > 14) aName = aName.substr(0, 14);
+		PvzpDrawString(g, aName, aTile.mX + 112, aTile.mY + 48, Sexy::FONT_DWARVENTODCRAFT12,
+			aInBank ? Color(150, 200, 150) : Color(255, 232, 176), DS_ALIGN_CENTER);
 	}
 }
 
@@ -871,7 +897,7 @@ SeedType SeedChooserScreen::SeedHitTest(int x, int y)
 
 SeedType SeedChooserScreen::FindSeedInBank(int theIndexInBank)
 {
-	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
+	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEED_TYPES; aSeedType = (SeedType)(aSeedType + 1))
 	{
 		if (mApp->HasSeedType(aSeedType) || IsModSeed(aSeedType))
 		{
