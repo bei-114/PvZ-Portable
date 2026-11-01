@@ -347,7 +347,7 @@ bool SeedChooserScreen::OnChooserPage(SeedType theSeedType) const
 }
 Rect SeedChooserScreen::GetPageButtonRect() const
 {
-	return Rect(300, 512, 200, 34);
+	return Rect(596, 462, 184, 30);
 }
 SeedType SeedChooserScreen::ModPageSeed(int theIndex)
 {
@@ -392,7 +392,7 @@ bool SeedChooserScreen::ModPageMouseDown(int x, int y)
 }
 void SeedChooserScreen::DrawModPage(Graphics* g)
 {
-	g->SetColor(Color(18, 30, 24, 215));
+	g->SetColor(Color(18, 30, 24, 235));
 	g->FillRect(70, 150, 660, 300);
 	PvzpDrawString(g, "MOD PLANTS", 400, 178, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color(255, 226, 140), DS_ALIGN_CENTER);
 	for (int i = 0; i < ModPageCount(); ++i)
@@ -404,10 +404,8 @@ void SeedChooserScreen::DrawModPage(Graphics* g)
 		g->FillRect(aTile);
 		g->SetColor(Color(214, 172, 74));
 		g->DrawRect(aTile);
-		ChosenSeed& aChosenSeed = mChosenSeeds[aSeed];
-		int aDrawX = aChosenSeed.mSeedState == SEED_IN_BANK ? aChosenSeed.mX : aTile.mX + 7;
-		int aDrawY = aChosenSeed.mSeedState == SEED_IN_BANK ? aChosenSeed.mY : aTile.mY + 6;
-		DrawSeedPacket(g, aDrawX, aDrawY, aSeed, SEED_NONE, aChosenSeed.mSeedState == SEED_IN_BANK ? 100 : 0, 0, true, true);
+		// grayness 255 keeps the packet art at full colour (0 would tint it black).
+		DrawSeedPacket(g, static_cast<float>(aTile.mX + 10), static_cast<float>(aTile.mY + 4), aSeed, SEED_NONE, 0.0f, 255, true, true);
 	}
 }
 
@@ -520,22 +518,6 @@ void SeedChooserScreen::Draw(Graphics* g)
 		g->DrawRect(aPage);
 		PvzpDrawString(g, mChooserPage == 0 ? "[MOD PLANTS  >]" : "[<  NORMAL PLANTS]",
 			aPage.mX + aPage.mWidth / 2, aPage.mY + 23, Sexy::FONT_DWARVENTODCRAFT12, Color::White, DS_ALIGN_CENTER);
-		if (mChooserPage == 1)
-		{
-			PvzpDrawString(g, "MOD PAGE - GOLD FRAME", 400, 500, Sexy::FONT_DWARVENTODCRAFT12,
-				Color(255, 216, 106), DS_ALIGN_CENTER);
-			for (SeedType aSeed = SEED_GATLINGPEA; aSeed < SEED_IMITATER; aSeed = (SeedType)(aSeed + 1))
-			{
-				int px, py;
-				GetSeedPositionInChooser(aSeed, px, py);
-				g->SetColor(Color(60, 44, 8, 190));
-				g->FillRect(px - 2, py - 2, SEED_PACKET_WIDTH + 4, 3);
-				g->FillRect(px - 2, py + SEED_PACKET_HEIGHT - 1, SEED_PACKET_WIDTH + 4, 3);
-				g->SetColor(Color(214, 168, 60, 210));
-				g->FillRect(px - 2, py, 3, SEED_PACKET_HEIGHT);
-				g->FillRect(px + SEED_PACKET_WIDTH - 1, py, 3, SEED_PACKET_HEIGHT);
-			}
-		}
 	}
 
 }
