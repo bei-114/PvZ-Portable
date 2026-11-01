@@ -4395,7 +4395,13 @@ void Board::MouseDown(int x, int y, int theClickCount)
 		mPlantFoodSelecting=false;mDbgPlantPending=false;mDbgOpen=false;
 		PvzpModTools::MouseDown(this,x,y);return;
 	}
-	if (theClickCount > 0 && mCursorObject->mCursorType == CursorType::CURSOR_TYPE_NORMAL)
+	if (theClickCount > 0 && PlantFoodMouseDown(x, y))
+	{
+		mDbgConsumeMouseUp = true;
+		return;
+	}
+
+	if (theClickCount > 0 && mCursorObject->mCursorType == CursorType::CURSOR_TYPE_NORMAL && !mPlantFoodSelecting)
 	{
 		int aBrainCol = PixelToGridX(x, y);
 		int aBrainRow = PixelToGridY(x, y);
@@ -4406,11 +4412,6 @@ void Board::MouseDown(int x, int y, int theClickCount)
 			mDbgConsumeMouseUp = true;
 			return;
 		}
-	}
-	if (theClickCount > 0 && PlantFoodMouseDown(x, y))
-	{
-		mDbgConsumeMouseUp = true;
-		return;
 	}
 	// Consume the entire debug gesture, including MouseUp. Tools and seed
 	// packets must never be intercepted by a plant's active ability.

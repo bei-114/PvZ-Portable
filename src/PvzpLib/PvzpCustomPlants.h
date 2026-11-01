@@ -20,4 +20,5 @@ void ApplyVisuals(Plant* thePlant);      // called after the body reanimation ex
 void Update(Board* theBoard);            // damage-step events
 void Reset(Board* theBoard);
 void DrawBox(Sexy::Graphics* g, Plant* thePlant);
+void DrawBrain(Sexy::Graphics* g, Plant* thePlant);
 }

@@ -155,7 +155,8 @@ void ApplyVisuals(Plant* p)
 	const auto* c = Config(p->mSeedType);
 	if (!c) return;
 	Reanimation* body = p->mApp->ReanimationTryToGet(p->mBodyReanimID);
-	if (body) body->mColorOverride = TintColor(c->tint);
+	if (!body) return;
+	body->mColorOverride = TintColor(c->tint);
 }
 
 void Update(Board* b)
@@ -185,6 +186,13 @@ void Update(Board* b)
 	}
 	seen.swap(keep);
 	if (seen.empty()) gSeen.erase(b);
+}
+
+void DrawBrain(Sexy::Graphics* g, Plant* p)
+{
+	g->SetScale(2.4f, 2.4f, 0.0f, 0.0f);
+	g->DrawImage(Sexy::IMAGE_BRAIN, 2, 2);
+	g->SetScale(1.0f, 1.0f, 0.0f, 0.0f);
 }
 
 void DrawBox(Sexy::Graphics* g, Plant* p)

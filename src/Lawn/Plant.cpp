@@ -3974,6 +3974,11 @@ void Plant::DrawShadow(Sexy::Graphics* g, float theOffsetX, float theOffsetY)
 
 void Plant::Draw(Graphics* g)
 {
+	if (PvzpCustomPlants::IsBrain(mSeedType))
+	{
+		PvzpCustomPlants::DrawBrain(g, this);
+		return;
+	}
 	PvzpCustomPlants::DrawBox(g, this);
 	float aOffsetX = 0.0f;
 	float aOffsetY = PlantDrawHeightOffset(mBoard, this, mSeedType, mPlantCol, mRow);
@@ -5047,6 +5052,7 @@ const PlantDefinition& GetPlantDefinition(SeedType theSeedType)
 			{
 				aCustom[i] = gCustomPlantDefs[i];
 				aCustom[i].mSeedCost = PvzpCustomPlants::CostForSeed(static_cast<SeedType>(int(SeedType::SEED_CUSTOM_0) + i), aCustom[i].mSeedCost);
+				aCustom[i].mRefreshTime = 0;   // mod plants start ready
 			}
 		}
 		return aCustom[int(theSeedType) - int(SeedType::SEED_CUSTOM_0)];

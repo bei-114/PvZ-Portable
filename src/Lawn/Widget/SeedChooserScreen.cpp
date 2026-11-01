@@ -434,6 +434,12 @@ void SeedChooserScreen::DrawModPage(Graphics* g)
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeed];
 		if (aChosenSeed.mSeedState != SEED_IN_CHOOSER) continue;
 		DrawSeedPacket(g, static_cast<float>(px), static_cast<float>(py), aSeed, SEED_NONE, 0.0f, 255, true, true);
+		if (PvzpCustomPlants::IsBrain(aSeed))
+		{
+			g->SetScale(0.6f, 0.6f, 0.0f, 0.0f);
+			g->DrawImage(Sexy::IMAGE_BRAIN, static_cast<float>(px + 20), static_cast<float>(py + 6));
+			g->SetScale(1.0f, 1.0f, 0.0f, 0.0f);
+		}
 	}
 }
 
