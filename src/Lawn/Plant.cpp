@@ -505,6 +505,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	}
 	mPlantHealth = PvzpMod::PlantInt(GetPlantDefinition(theSeedType).mPlantName, "health", mPlantHealth);
 	mPlantMaxHealth = mPlantHealth;
+	PvzpCustomPlants::Initialize(this);
 
 	if (mSeedType != SeedType::SEED_FLOWERPOT && IsOnBoard())
 	{
@@ -2703,6 +2704,10 @@ void Plant::UpdateReanimColor()
 	else if (mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
 	{
 		aColorOverride = Color(110, 245, 190); // cyan-green electric body
+	}
+	else if (PvzpCustomPlants::IsCustom(mSeedType))
+	{
+		aColorOverride = PvzpCustomPlants::ColorForSeed(mSeedType);
 	}
 	else
 	{
@@ -5044,15 +5049,14 @@ const PlantDefinition& GetPlantDefinition(SeedType theSeedType)
 	if (theSeedType >= SeedType::SEED_CUSTOM_0 && theSeedType <= SeedType::SEED_CUSTOM_3)
 	{
 		static PlantDefinition aCustom[4];
-		static bool aReady = false;
-		if (!aReady)
+		static uint64_t aRevision = ~uint64_t(0);
+		if (aRevision != PvzpMod::SnapshotRevision())
 		{
-			aReady = true;
+			aRevision = PvzpMod::SnapshotRevision();
 			for (int i = 0; i < 4; ++i)
 			{
 				aCustom[i] = gCustomPlantDefs[i];
 				aCustom[i].mSeedCost = PvzpCustomPlants::CostForSeed(static_cast<SeedType>(int(SeedType::SEED_CUSTOM_0) + i), aCustom[i].mSeedCost);
-				aCustom[i].mRefreshTime = 0;   // mod plants start ready
 			}
 		}
 		return aCustom[int(theSeedType) - int(SeedType::SEED_CUSTOM_0)];
@@ -5062,10 +5066,10 @@ const PlantDefinition& GetPlantDefinition(SeedType theSeedType)
 
 	// PvzpMod：首次访问时复制一份原版表，套用模组覆盖值
 	static PlantDefinition aModdedDefs[static_cast<int>(SeedType::NUM_SEED_TYPES)];
-	static bool aModsApplied = false;
-	if (!aModsApplied)
+	static uint64_t aRevision = ~uint64_t(0);
+	if (aRevision != PvzpMod::SnapshotRevision())
 	{
-		aModsApplied = true;
+		aRevision = PvzpMod::SnapshotRevision();
 		for (int i = 0; i < static_cast<int>(SeedType::NUM_SEED_TYPES); i++)
 		{
 			aModdedDefs[i] = gPlantDefs[i];

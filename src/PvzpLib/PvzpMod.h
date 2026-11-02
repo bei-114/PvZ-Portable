@@ -19,7 +19,11 @@ namespace PvzpMod
 		int slot = -1;
 		std::string name, tint, behavior = "nut";
 		int cost = 0, health = 6000, step = 1000, badChance = 0;
-		std::vector<std::string> events, badEvents;
+		// Zero disables timed pulses; otherwise 50..60000 game ticks.
+		int interval = 0;
+		// Validated event tokens only: sun:0..9990, heal:0..10000000,
+		// chill, chill:row, plant:random, destroy:plant, and supported zombie names.
+		std::vector<std::string> events, badEvents, pulseEvents, foodEvents;
 	};
 	const std::vector<CustomPlant>& CustomPlants();
 	void Init();
@@ -32,6 +36,9 @@ namespace PvzpMod
 	// Stable fingerprint of effective rules, for warning when loading a save
 	// created with a different mod set. It is not an integrity/security hash.
 	uint64_t RulesFingerprint();
+	// Tooling snapshot generation, including resets/toggles with equal effective rules.
+	// Consumers caching derived definitions must refresh when this changes.
+	uint64_t SnapshotRevision();
 	void WarnSavedRules(uint64_t theSavedFingerprint);
 	bool HasMods();
 	int PlantInt(const char* thePlantName, const char* theField, int theDefault);

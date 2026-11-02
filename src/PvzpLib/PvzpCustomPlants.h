@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #pragma once
 #include "../ConstEnums.h"
+#include "graphics/Color.h"
+#include <cstdint>
+#include <vector>
 class Board;
 class Plant;
 namespace Sexy { class Graphics; }
@@ -21,4 +24,11 @@ void Update(Board* theBoard);            // damage-step events
 void Reset(Board* theBoard);
 void DrawBox(Sexy::Graphics* g, Plant* thePlant);
 void DrawBrain(Sexy::Graphics* g, Plant* thePlant);
+Sexy::Color ColorForSeed(SeedType theSeedType);
+void Initialize(Plant* thePlant);
+void ObserveDamage(Board* theBoard, Plant* thePlant);
+bool ApplyFood(Board* theBoard, Plant* thePlant);
+bool DrawPacketIcon(Sexy::Graphics* g, SeedType theSeedType, float x, float y);
+std::vector<uint8_t> Save(Board* theBoard);
+bool Load(Board* theBoard, const std::vector<uint8_t>& data);
 }

@@ -30,6 +30,7 @@
 #include "MessageWidget.h"
 #include "graphics/Font.h"
 #include "../PvzpLib/FilterEffect.h"
+#include "../PvzpLib/PvzpCustomPlants.h"
 #include "misc/SexyMatrix.h"
 
 constexpr const int SLOT_MACHINE_TIME = 400;
@@ -221,6 +222,9 @@ void SeedPacketDrawSeed(Graphics* g, float x, float y, SeedType theSeedType, See
 			aFilterEffect = FilterEffect::FILTER_EFFECT_LESS_WASHED_OUT;
 		aImage = FilterEffectGetImage(aImage, aFilterEffect);
 	}
+
+	if (PvzpCustomPlants::DrawPacketIcon(g, aSeedType, x, y))
+		return;
 
 	if (aSeedType == SeedType::SEED_POTATOMINE && g->mScaleX <= 1.0f)
 	{
@@ -1119,6 +1123,10 @@ void SeedPacket::SetPacketType(SeedType theSeedType, SeedType theImitaterType)
 	{
 		aUseSeedType = theImitaterType;
 	}
+
+	// Initial readiness is independent of the normal post-plant recharge time.
+	if (PvzpCustomPlants::IsCustom(aUseSeedType))
+		return;
 
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM || mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND ||

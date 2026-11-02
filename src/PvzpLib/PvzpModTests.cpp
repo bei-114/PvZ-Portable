@@ -3,6 +3,7 @@
 #include "PvzpMod.h"
 #include "../Lawn/Plant.h"
 #include "../Lawn/Zombie.h"
+#include "../Lawn/System/PortableSaveValidation.h"
 
 #include <chrono>
 #include <cstdio>
@@ -374,6 +375,415 @@ void CustomPlantPack(Checks& t, const fs::path& tmp) {
         "reverse box fields parsed from mod json");
     t.Check(PvzpMod::LoadFromDirectory(tmp / "no-custom") && PvzpMod::CustomPlants().empty(),
         "leaving the custom directory clears definitions");
+    CopyFixture(root, "80-brain", "80-brain");
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::Diagnostics().empty() &&
+        PvzpMod::CustomPlants().size() == 3 && PvzpMod::CustomPlants()[2].slot == 2 &&
+        PvzpMod::CustomPlants()[2].behavior == "brain" && PvzpMod::CustomPlants()[2].tint == "red",
+        "existing box nuts and brain packs remain compatible with strict validation");
+}
+
+void NewContentPacks(Checks& t, const fs::path& tmp) {
+    const fs::path root = tmp / "new-content-packs";
+    CopyFixture(root, "70-box-nuts", "70-box-nuts");
+    CopyFixture(root, "80-brain", "80-brain");
+    CopyFixture(root, "90-aurora-nut", "90-aurora-nut");
+    CopyFixture(root, "95-bounty-zombies", "95-bounty-zombies");
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::Diagnostics().empty() &&
+        PvzpMod::List().size() == 4 && PvzpMod::CustomPlants().size() == 4,
+        "shipped box brain aurora and bounty packs coexist without diagnostics");
+    bool slots[4] = {};
+    for (const auto& plant : PvzpMod::CustomPlants()) {
+        if (plant.slot >= 0 && plant.slot < 4) slots[plant.slot] = true;
+    }
+    t.Check(slots[0] && slots[1] && slots[2] && slots[3], "70 80 and90 packs occupy distinct custom slots zero through three");
+    bool aurora = false, mysteryFood = false, reverseFood = false;
+    for (const auto& plant : PvzpMod::CustomPlants()) {
+        if (plant.slot == 0) mysteryFood = plant.foodEvents == std::vector<std::string>{"sun:150", "plant:random", "heal:2000"};
+        if (plant.slot == 1) reverseFood = plant.foodEvents == std::vector<std::string>{"sun:100", "plant:random", "chill"};
+        if (plant.slot == 3) aurora = plant.name == "Aurora Nut" && plant.behavior == "nut" &&
+            plant.tint == "purple" && plant.cost == 125 && plant.health == 1800 && plant.step == 600 &&
+            plant.interval == 800 && plant.events == std::vector<std::string>{"chill:row"} &&
+            plant.pulseEvents == std::vector<std::string>{"chill:row"} &&
+            plant.foodEvents == std::vector<std::string>{"chill", "heal:1800", "sun:100"};
+    }
+    t.Check(aurora, "Aurora Nut fixture declares row chill pulses every800 ticks and three food events");
+    t.Check(mysteryFood && reverseFood, "both existing box nuts expose their three configured food events");
+    t.Check(PvzpMod::ZombieInt("BUCKETHEAD_ZOMBIE", "health", -1) == 350 &&
+        PvzpMod::ZombieInt("BUCKETHEAD_ZOMBIE", "speedPercent", -1) == 125 &&
+        PvzpMod::ZombieInt("BUCKETHEAD_ZOMBIE", "sunDrop", -1) == 100 &&
+        PvzpMod::ZombieInt("BUCKETHEAD_ZOMBIE", "tintR", -1) == 120 &&
+        PvzpMod::ZombieInt("BUCKETHEAD_ZOMBIE", "tintG", -1) == 215 &&
+        PvzpMod::ZombieInt("BUCKETHEAD_ZOMBIE", "tintB", -1) == 255,
+        "bounty buckethead fixture applies speed125 sun100 and blue tint");
+    t.Check(PvzpMod::ZombieInt("NEWSPAPER_ZOMBIE", "health", -1) == 400 &&
+        PvzpMod::ZombieInt("NEWSPAPER_ZOMBIE", "speedPercent", -1) == 150 &&
+        PvzpMod::ZombieInt("NEWSPAPER_ZOMBIE", "sunDrop", -1) == 75 &&
+        PvzpMod::ZombieInt("NEWSPAPER_ZOMBIE", "tintR", -1) == 255 &&
+        PvzpMod::ZombieInt("NEWSPAPER_ZOMBIE", "tintG", -1) == 195 &&
+        PvzpMod::ZombieInt("NEWSPAPER_ZOMBIE", "tintB", -1) == 100,
+        "bounty newspaper fixture applies speed150 sun75 and gold tint");
+    const uint64_t fingerprint = PvzpMod::RulesFingerprint();
+    t.Check(PvzpMod::SetEnabled("org.pvzp.example.aurora-nut", false) &&
+        PvzpMod::CustomPlants().size() == 3 && PvzpMod::RulesFingerprint() != fingerprint,
+        "disabling Aurora Nut removes its effective definition");
+    bool freed = true;
+    for (const auto& plant : PvzpMod::CustomPlants()) if (plant.slot == 3) freed = false;
+    t.Check(freed && PvzpMod::Diagnostics().empty(), "disabling90 frees slot three without disturbing other packs");
+    t.Check(PvzpMod::SetEnabled("org.pvzp.example.bounty-zombies", false), "bounty fixture can be disabled independently");
+    bool cleared = true;
+    for (const char* name : {"BUCKETHEAD_ZOMBIE", "NEWSPAPER_ZOMBIE"})
+        for (const char* field : {"health", "speedPercent", "sunDrop", "tintR", "tintG", "tintB"})
+            cleared = cleared && PvzpMod::ZombieInt(name, field, -123) == -123;
+    t.Check(cleared && PvzpMod::CustomPlants().size() == 3 && PvzpMod::Diagnostics().empty(),
+        "disabling95 clears every bounty override while preserving other custom plants");
+    t.Check(PvzpMod::SetEnabled("org.pvzp.example.aurora-nut", true) &&
+        PvzpMod::SetEnabled("org.pvzp.example.bounty-zombies", true) &&
+        PvzpMod::RulesFingerprint() == fingerprint && PvzpMod::Diagnostics().empty(),
+        "re-enabling shipped content restores the identical effective rules");
+}
+
+void CustomPlantSecurity(Checks& t, const fs::path& tmp) {
+    const fs::path root = tmp / "custom-security";
+    const fs::path manifest = root / "candidate" / "mod.json";
+    auto pack = [](const std::string& fields) {
+        return std::string(R"({"id":"org.test.custom","plants":{"PEASHOOTER":{"cost":99}},"customPlants":[{"slot":0,"name":"Test")") + fields + "}]}";
+    };
+    Write(root / "good" / "mod.json",
+        R"({"id":"org.test.good","plants":{"SUNFLOWER":{"cost":71}}})");
+    const std::vector<const char*> invalidTokens = {
+        "", "sun:", "heal:", "sun:-1", "sun:+1", "sun: 1", "sun:1 ", "sun:1x",
+        "sun:1.0", "sun:1e2", "sun:0x10", "sun:9991", "heal:10000001",
+        "sun:2147483648", "heal:99999999999999999999999999999999999",
+        "sun:\\u0661", "sun:1\\u0000tail", "sun:1\\n", "chill\\u0000", "CHILL",
+        "zombie:", "zombie:TYPO", "zombie:BOSS", "plant:PEASHOOTER", "destroy:all", "chill:all"
+    };
+    for (const char* field : {"events", "badEvents", "pulseEvents", "foodEvents"}) {
+        for (const char* token : invalidTokens) {
+            Write(manifest, pack(std::string(",\"") + field + "\":[\"" + token + "\"]"));
+            t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::List().size() == 1 &&
+                PvzpMod::CustomPlants().empty() && HasDiagnostic("candidate") &&
+                PvzpMod::PlantInt("PEASHOOTER", "cost", -1) == -1 &&
+                PvzpMod::PlantInt("SUNFLOWER", "cost", -1) == 71,
+                "unsafe event rejected atomically in every event list");
+        }
+    }
+    const std::vector<const char*> invalidFields = {
+        R"(,"tint":"orange")", R"(,"tint":"Gold")", R"(,"tint":"")", R"(,"tint":1)",
+        R"(,"behavior":"shooter")", R"(,"behavior":"Nut")", R"(,"behavior":false)",
+        R"(,"interval":1)", R"(,"interval":49)", R"(,"interval":60001)", R"(,"interval":-1)",
+        R"(,"interval":50.5)", R"(,"interval":"800")", R"(,"events":[null])", R"(,"badEvents":[1])",
+        R"(,"pulseEvents":"chill")", R"(,"foodEvents":[true])"
+    };
+    for (const char* fields : invalidFields) {
+        Write(manifest, pack(fields));
+        t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::List().size() == 1 &&
+            PvzpMod::CustomPlants().empty() && HasDiagnostic("candidate"),
+            "invalid custom behavior tint interval or event type rejected");
+    }
+    // The complete supported grammar, including endpoints and benign leading zeros.
+    Write(manifest, pack(R"(,"tint":"purple","interval":50,"events":["sun:0","sun:9990","heal:0","heal:10000000","chill","chill:row","plant:random","destroy:plant","zombie:NORMAL","zombie:GARGANTUAR","zombie:BUNGEE","zombie:DIGGER","zombie:BALLOON","zombie:CONEHEAD","zombie:BUCKETHEAD","sun:00075"],"pulseEvents":["chill:row"],"foodEvents":["chill","sun:100"])"));
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::Diagnostics().empty() &&
+        PvzpMod::CustomPlants().size() == 1 && PvzpMod::CustomPlants()[0].events.size() == 16 &&
+        PvzpMod::CustomPlants()[0].interval == 50 && PvzpMod::CustomPlants()[0].pulseEvents.size() == 1 &&
+        PvzpMod::CustomPlants()[0].foodEvents.size() == 2,
+        "supported event grammar boundaries and extended custom fields accepted");
+    for (const char* field : {"events", "badEvents", "pulseEvents", "foodEvents"}) {
+        std::string list;
+        for (int i = 0; i < 17; ++i) list += (i ? ",\"chill\"" : "\"chill\"");
+        Write(manifest, pack(std::string(",\"") + field + "\":[" + list + "]"));
+        t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::CustomPlants().empty() && HasDiagnostic("candidate"),
+            "all event lists enforce sixteen token limit");
+    }
+    for (const char* tint : {"gold", "blue", "red", "green", "purple"}) {
+        Write(manifest, pack(std::string(",\"tint\":\"") + tint + "\",\"interval\":60000"));
+        t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::CustomPlants().size() == 1 &&
+            PvzpMod::Diagnostics().empty(), "every supported tint and maximum interval accepted");
+    }
+    Write(manifest, pack(""));
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::CustomPlants().size() == 1 &&
+        PvzpMod::CustomPlants()[0].behavior == "nut" && PvzpMod::CustomPlants()[0].tint.empty() &&
+        PvzpMod::CustomPlants()[0].interval == 0 && PvzpMod::CustomPlants()[0].pulseEvents.empty() &&
+        PvzpMod::CustomPlants()[0].foodEvents.empty(), "omitted custom fields retain legacy defaults");
+    Write(manifest, R"({"customPlants":[{"slot":0,"name":"bad\u0000name"}]})");
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::CustomPlants().empty() && HasDiagnostic("candidate"),
+        "control characters in custom display names rejected");
+    Write(manifest, R"({"customPlants":[{"slot":0,"name":"One"},{"slot":0,"name":"Two"}]})");
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::CustomPlants().empty() && HasDiagnostic("candidate"),
+        "duplicate custom slots in one manifest rejected atomically");
+}
+
+void CustomPlantFingerprintsAndReset(Checks& t, const fs::path& tmp) {
+    const fs::path root = tmp / "custom-fingerprint";
+    const fs::path manifest = root / "custom" / "mod.json";
+    const std::string baseline = R"({"id":"org.test.custom","customPlants":[{"slot":0,"name":"Test","behavior":"nut","tint":"gold","cost":200,"health":6000,"step":1000,"badChance":50,"interval":800,"events":["sun:150","heal:200"],"badEvents":["zombie:DIGGER"],"pulseEvents":["chill:row"],"foodEvents":["chill","sun:100"]}]})";
+    Write(manifest, baseline);
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::HasMods(), "custom-only pack counts as active mods");
+    const uint64_t fingerprint = PvzpMod::RulesFingerprint();
+    uint64_t revision = PvzpMod::SnapshotRevision();
+    const std::vector<std::pair<const char*, const char*>> mutations = {
+        {R"("slot":0)", R"("slot":1)"}, {R"("name":"Test")", R"("name":"Renamed")"},
+        {R"("behavior":"nut")", R"("behavior":"brain")"}, {R"("tint":"gold")", R"("tint":"blue")"},
+        {R"("cost":200)", R"("cost":201)"}, {R"("health":6000)", R"("health":6001)"},
+        {R"("step":1000)", R"("step":1001)"}, {R"("badChance":50)", R"("badChance":51)"},
+        {R"("interval":800)", R"("interval":801)"},
+        {R"("events":["sun:150","heal:200"])", R"("events":["heal:200","sun:150"])"},
+        {R"("badEvents":["zombie:DIGGER"])", R"("badEvents":["zombie:BUNGEE"])"},
+        {R"("pulseEvents":["chill:row"])", R"("pulseEvents":["chill"])"},
+        {R"("foodEvents":["chill","sun:100"])", R"("foodEvents":["chill"])"}
+    };
+    for (const auto& [before, after] : mutations) {
+        std::string changed = baseline;
+        changed.replace(changed.find(before), std::string(before).size(), after);
+        Write(manifest, changed);
+        t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::CustomPlants().size() == 1 &&
+            PvzpMod::Diagnostics().empty() && PvzpMod::RulesFingerprint() != fingerprint &&
+            PvzpMod::SnapshotRevision() > revision,
+            "every effective custom definition field is fingerprinted and invalidates snapshot cache");
+        revision = PvzpMod::SnapshotRevision();
+    }
+    Write(manifest, baseline);
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::RulesFingerprint() == fingerprint &&
+        PvzpMod::SnapshotRevision() > revision, "identical rules retain fingerprint but refresh snapshot generation");
+    PvzpMod::WarnSavedRules(fingerprint);
+    t.Check(PvzpMod::Diagnostics().empty(), "matching custom fingerprint does not warn");
+    revision = PvzpMod::SnapshotRevision();
+    t.Check(PvzpMod::SetEnabled("org.test.custom", false) && PvzpMod::CustomPlants().empty() &&
+        !PvzpMod::HasMods() && PvzpMod::RulesFingerprint() != fingerprint &&
+        PvzpMod::SnapshotRevision() > revision, "disabling custom-only mod removes stale definitions and changes revision");
+    PvzpMod::WarnSavedRules(fingerprint);
+    t.Check(HasDiagnostic("savegame"), "custom definition mismatch warns on saved rules");
+    const uint64_t disabledFingerprint = PvzpMod::RulesFingerprint();
+    t.Check(PvzpMod::SetEnabled("org.test.custom", true) && PvzpMod::CustomPlants().size() == 1 &&
+        PvzpMod::RulesFingerprint() == fingerprint, "re-enabling restores original custom definition");
+    std::string disabled = baseline;
+    disabled.insert(1, "\"enabled\":false,");
+    Write(manifest, disabled);
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::CustomPlants().empty() &&
+        !PvzpMod::HasMods() && PvzpMod::RulesFingerprint() == disabledFingerprint,
+        "loading disabled custom pack clears prior enabled definitions");
+    Write(manifest, baseline);
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::CustomPlants().size() == 1,
+        "loading re-enabled custom manifest restores definitions");
+    revision = PvzpMod::SnapshotRevision();
+    t.Check(PvzpMod::LoadFromDirectory(tmp / "custom-reset-empty") && PvzpMod::CustomPlants().empty() &&
+        !PvzpMod::HasMods() && PvzpMod::SnapshotRevision() > revision,
+        "loading missing directory clears custom definitions and invalidates cache");
+    Write(root / "not-directory", "not a directory");
+    t.Check(PvzpMod::LoadFromDirectory(root) && !PvzpMod::LoadFromDirectory(root / "not-directory") &&
+        PvzpMod::CustomPlants().empty() && !PvzpMod::HasMods(),
+        "failed directory load cannot leave stale custom definitions");
+    const std::string one = R"({"slot":0,"name":"One"})";
+    const std::string two = R"({"slot":1,"name":"Two"})";
+    Write(manifest, std::string(R"({"id":"org.test.custom","customPlants":[)") + one + "," + two + "]}");
+    t.Check(PvzpMod::LoadFromDirectory(root), "ordered custom definitions load");
+    const auto orderedFingerprint = PvzpMod::RulesFingerprint();
+    Write(manifest, std::string(R"({"id":"org.test.custom","customPlants":[)") + two + "," + one + "]}");
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::RulesFingerprint() == orderedFingerprint,
+        "manifest custom definition ordering does not change effective fingerprint");
+}
+
+void CustomPlantCollisions(Checks& t, const fs::path& tmp) {
+    const fs::path root = tmp / "custom-collisions";
+    Write(root / "low" / "mod.json",
+        R"({"id":"org.test.low","priority":-1,"customPlants":[{"slot":0,"name":"Low","cost":100}]})");
+    Write(root / "a" / "mod.json",
+        R"({"id":"org.test.a","customPlants":[{"slot":0,"name":"A","cost":200}]})");
+    Write(root / "z" / "mod.json",
+        R"({"id":"org.test.z","customPlants":[{"slot":0,"name":"Z","cost":300}]})");
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::CustomPlants().size() == 1 &&
+        PvzpMod::CustomPlants()[0].cost == 300 && HasDiagnostic("a") && HasDiagnostic("z") &&
+        PvzpMod::Diagnostics().size() == 2, "cross-mod slot collisions warn and preserve priority/folder last-wins");
+    bool named = false;
+    for (const auto& diagnostic : PvzpMod::Diagnostics()) {
+        if (diagnostic.message.find("org.test.z") != std::string::npos &&
+            diagnostic.message.find("org.test.a") != std::string::npos &&
+            diagnostic.message.find("slot 0") != std::string::npos) named = true;
+    }
+    t.Check(named, "slot collision diagnostic identifies slot winner and previous owner");
+    t.Check(PvzpMod::SetEnabled("org.test.z", false) && PvzpMod::CustomPlants()[0].cost == 200 &&
+        PvzpMod::Diagnostics().size() == 1 && !HasDiagnostic("z"),
+        "disabling slot winner reveals previous definition and removes stale conflict warnings");
+    t.Check(PvzpMod::SetEnabled("org.test.z", true) && PvzpMod::Diagnostics().size() == 2 &&
+        PvzpMod::CustomPlants()[0].cost == 300, "re-enabling restores slot winner without accumulating warnings");
+    PvzpMod::WarnSavedRules(0);
+    t.Check(PvzpMod::SetEnabled("org.test.z", false) && PvzpMod::SetEnabled("org.test.a", false) &&
+        PvzpMod::Diagnostics().size() == 1 && HasDiagnostic("savegame") &&
+        PvzpMod::CustomPlants()[0].cost == 100, "rebuild clears conflicts while retaining independent save diagnostics");
+    t.Check(PvzpMod::SetEnabled("org.test.low", false) && PvzpMod::CustomPlants().empty() && !PvzpMod::HasMods(),
+        "disabling all slot owners leaves no stale custom plant");
+}
+
+void DefinitionCacheReset(Checks& t, const fs::path& tmp) {
+    const fs::path empty = tmp / "definition-cache-empty";
+    const fs::path root = tmp / "definition-cache";
+    const fs::path manifest = root / "cached" / "mod.json";
+    t.Check(PvzpMod::LoadFromDirectory(empty), "cache regression starts with default snapshot");
+    const int plantCost = GetPlantDefinition(SeedType::SEED_PEASHOOTER).mSeedCost;
+    const int customCost = GetPlantDefinition(SeedType::SEED_CUSTOM_0).mSeedCost;
+    const int zombieWeight = GetZombieDefinition(ZombieType::ZOMBIE_NORMAL).mPickWeight;
+    const std::string json = R"({"id":"org.test.cached","plants":{"PEASHOOTER":{"cost":321}},"zombies":{"ZOMBIE":{"pickWeight":5432}},"customPlants":[{"slot":0,"name":"Cached","cost":432}]})";
+    auto applied = [] {
+        return GetPlantDefinition(SeedType::SEED_PEASHOOTER).mSeedCost == 321 &&
+            GetPlantDefinition(SeedType::SEED_CUSTOM_0).mSeedCost == 432 &&
+            GetZombieDefinition(ZombieType::ZOMBIE_NORMAL).mPickWeight == 5432;
+    };
+    auto defaults = [&] {
+        return GetPlantDefinition(SeedType::SEED_PEASHOOTER).mSeedCost == plantCost &&
+            GetPlantDefinition(SeedType::SEED_CUSTOM_0).mSeedCost == customCost &&
+            GetZombieDefinition(ZombieType::ZOMBIE_NORMAL).mPickWeight == zombieWeight;
+    };
+    Write(manifest, json);
+    t.Check(PvzpMod::LoadFromDirectory(root) && applied(), "loaded snapshot refreshes already-cached game definitions");
+    t.Check(PvzpMod::SetEnabled("org.test.cached", false) && defaults(),
+        "disabling restores default normal custom and zombie cached definitions");
+    t.Check(PvzpMod::SetEnabled("org.test.cached", true) && applied(),
+        "re-enabling refreshes all derived definition caches");
+    std::string disabled = json;
+    disabled.insert(1, "\"enabled\":false,");
+    Write(manifest, disabled);
+    t.Check(PvzpMod::LoadFromDirectory(root) && defaults(),
+        "loading disabled manifest cannot retain cached custom costs");
+    Write(manifest, json);
+    t.Check(PvzpMod::LoadFromDirectory(root) && applied(), "reloaded enabled rules refresh definitions");
+    t.Check(PvzpMod::LoadFromDirectory(empty) && defaults(), "loading empty snapshot resets all cached definitions");
+}
+
+void ZombieVariantFields(Checks& t, const fs::path& tmp) {
+    const fs::path root = tmp / "zombie-variant";
+    const fs::path manifest = root / "variant" / "mod.json";
+    Write(manifest, R"({"id":"org.test.variant","zombies":{"ZOMBIE":{"speedPercent":25,"sunDrop":0,"tintR":0,"tintG":255,"tintB":128}}})");
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::Diagnostics().empty() &&
+        PvzpMod::ZombieInt("ZOMBIE", "speedPercent", -1) == 25 &&
+        PvzpMod::ZombieInt("ZOMBIE", "sunDrop", -1) == 0 &&
+        PvzpMod::ZombieInt("ZOMBIE", "tintR", -1) == 0 &&
+        PvzpMod::ZombieInt("ZOMBIE", "tintG", -1) == 255 &&
+        PvzpMod::ZombieInt("ZOMBIE", "tintB", -1) == 128, "generic zombie variant fields accept lower and color bounds");
+    const auto fingerprint = PvzpMod::RulesFingerprint();
+    Write(manifest, R"({"id":"org.test.variant","zombies":{"ZOMBIE":{"speedPercent":300,"sunDrop":1000}}})");
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::Diagnostics().empty() &&
+        PvzpMod::ZombieInt("ZOMBIE", "speedPercent", -1) == 300 &&
+        PvzpMod::ZombieInt("ZOMBIE", "sunDrop", -1) == 1000 &&
+        PvzpMod::ZombieInt("ZOMBIE", "tintR", -1) == -1 && PvzpMod::RulesFingerprint() != fingerprint,
+        "generic zombie variant maximums accepted and missing colors reset");
+    for (const char* fields : {R"("speedPercent":24)", R"("speedPercent":301)", R"("sunDrop":-1)",
+        R"("sunDrop":1001)", R"("tintR":-1)", R"("tintG":256)", R"("tintB":1.5)", R"("tintR":"0")"}) {
+        Write(manifest, std::string(R"({"id":"org.test.variant","zombies":{"ZOMBIE":{)") + fields + "}}}");
+        t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::List().empty() && HasDiagnostic("variant"),
+            "invalid zombie variant integer bounds and types rejected atomically");
+    }
+}
+
+void PortableSaveValidation(Checks& t) {
+    using Bytes = std::vector<uint8_t>;
+    auto u32 = [](Bytes& bytes, uint32_t value) {
+        for (int i = 0; i < 4; ++i) bytes.push_back(static_cast<uint8_t>(value >> (i * 8)));
+    };
+    auto field = [&](Bytes& bytes, uint32_t id, const Bytes& value) {
+        u32(bytes, id); u32(bytes, static_cast<uint32_t>(value.size()));
+        bytes.insert(bytes.end(), value.begin(), value.end());
+    };
+    auto envelope = [&](const Bytes& value) {
+        Bytes chunk; u32(chunk, 1); field(chunk, 1, value); return chunk;
+    };
+    auto number = [&](uint32_t value) { Bytes bytes; u32(bytes, value); return bytes; };
+    Bytes baseline;
+    field(baseline, 1, envelope(number(0))); // Envelope-only fixture; not an actual Board.
+    auto preflight = [](const Bytes& bytes, bool expectedMarker) {
+        std::vector<PvzpSave::ChunkView> chunks;
+        bool marked = false;
+        return PvzpSave::PreflightPayload({bytes.data(), bytes.size()}, chunks, marked) && marked == expectedMarker;
+    };
+    t.Check(preflight(baseline, false), "unmarked portable envelope retains baseline compatibility");
+    Bytes current = baseline;
+    field(current, PvzpSave::SeedLayoutChunk, envelope(number(PvzpSave::StableSeedLayout)));
+    t.Check(preflight(current, true), "explicit stable custom200 seed layout marker accepted");
+    Bytes first;
+    field(first, PvzpSave::SeedLayoutChunk, envelope(number(PvzpSave::StableSeedLayout)));
+    first.insert(first.end(), baseline.begin(), baseline.end());
+    t.Check(preflight(first, true), "layout marker accepted independent of chunk ordering");
+    Bytes duplicate = current;
+    field(duplicate, PvzpSave::SeedLayoutChunk, envelope(number(PvzpSave::StableSeedLayout)));
+    t.Check(!preflight(duplicate, true), "duplicate layout marker rejected before import");
+    for (uint32_t layout : {0U, 54U, 58U, 201U, 0xFFFFFFFFU}) {
+        Bytes bad = baseline;
+        field(bad, PvzpSave::SeedLayoutChunk, envelope(number(layout)));
+        t.Check(!preflight(bad, false), "unknown and mismatched layout markers rejected without enum migration");
+    }
+    Bytes conflict = current;
+    field(conflict, PvzpSave::SeedLayoutChunk, envelope(number(58)));
+    t.Check(!preflight(conflict, true), "conflicting layout markers rejected");
+    Bytes repeated = baseline;
+    repeated.insert(repeated.end(), baseline.begin(), baseline.end());
+    t.Check(!preflight(repeated, false), "duplicate known board chunk rejected");
+    Bytes unknown = current;
+    field(unknown, 0x12345678U, Bytes{1, 2, 3});
+    field(unknown, 0x12345678U, Bytes{4});
+    t.Check(preflight(unknown, true), "unknown chunks remain forward-compatible including repeated unknown ids");
+    Bytes custom = current;
+    field(custom, 0x4D4F4404U, envelope(Bytes{1, 2, 3}));
+    t.Check(preflight(custom, true), "custom runtime state chunk has a validated envelope");
+    field(custom, 0x4D4F4404U, envelope(Bytes{1}));
+    t.Check(!preflight(custom, true), "duplicate custom state chunk rejected");
+    for (size_t remove = 1; remove <= 8; ++remove) {
+        Bytes truncated = current;
+        truncated.resize(truncated.size() - remove);
+        t.Check(!preflight(truncated, true), "truncated top-level or known chunk envelope rejected");
+    }
+    Bytes suffix = current; suffix.push_back(0);
+    t.Check(!preflight(suffix, true), "valid chunks followed by malformed suffix rejected before import");
+    Bytes oversized = baseline; u32(oversized, 999); u32(oversized, 0xFFFFFFFFU);
+    t.Check(!preflight(oversized, false), "oversized TLV declaration rejected without arithmetic overflow");
+    Bytes badChunk = envelope(number(0)); badChunk[0] = 2;
+    Bytes badVersion; field(badVersion, 1, badChunk);
+    t.Check(!preflight(badVersion, false), "unsupported known chunk version rejected");
+    Bytes duplicateField = envelope(number(0)); field(duplicateField, 1, number(1));
+    Bytes badFields; field(badFields, 1, duplicateField);
+    t.Check(!preflight(badFields, false), "duplicate primary chunk field rejected");
+    Bytes extended = envelope(number(0)); field(extended, 77, Bytes{1}); field(extended, 77, Bytes{2});
+    Bytes extendedPayload; field(extendedPayload, 1, extended);
+    t.Check(preflight(extendedPayload, false), "unknown chunk fields remain forward-compatible");
+    Bytes markerExtra = number(PvzpSave::StableSeedLayout); markerExtra.push_back(0);
+    Bytes extra = baseline; field(extra, PvzpSave::SeedLayoutChunk, envelope(markerExtra));
+    t.Check(!preflight(extra, false), "layout marker requires exactly one uint32 value");
+    Bytes nested; field(nested, 1, number(1)); field(nested, 100, number(2));
+    t.Check(PvzpSave::ValidFields({nested.data(), nested.size()}, 1, true), "known nested object fields validate");
+    field(nested, 100, number(3));
+    t.Check(!PvzpSave::ValidFields({nested.data(), nested.size()}, 1, true), "duplicate nested tail rejected");
+    Bytes future; field(future, 99, Bytes{1}); field(future, 99, Bytes{2});
+    t.Check(PvzpSave::ValidFields({future.data(), future.size()}, 1, true), "unknown nested fields may repeat safely");
+    future.push_back(0);
+    t.Check(!PvzpSave::ValidFields({future.data(), future.size()}, 1, true), "malformed nested field suffix rejected");
+    bool valid = PvzpSave::ValidSeedId(-1);
+    for (int32_t id = 0; id <= 53; ++id) valid = valid && PvzpSave::ValidSeedId(id);
+    for (int32_t id = 55; id <= 75; ++id) valid = valid && PvzpSave::ValidSeedId(id) && PvzpSave::PseudoSeedId(id);
+    for (int32_t id = 200; id <= 203; ++id) valid = valid && PvzpSave::ValidSeedId(id);
+    t.Check(valid, "all stable plants pseudo seeds custom slots and none sentinel accepted");
+    for (int32_t id : {-2147483647 - 1, -2, 54, 76, 79, 80, 199, 204, 2147483647})
+        t.Check(!PvzpSave::ValidSeedId(id), "invalid seed sentinel gap and intermediate-only values rejected");
+    bool plantContexts = true, imitaterContexts = PvzpSave::ValidImitaterSeedId(-1);
+    for (int32_t id = 0; id <= 53; ++id) plantContexts = plantContexts && PvzpSave::ValidPlantSeedId(id);
+    for (int32_t id = 200; id <= 203; ++id) plantContexts = plantContexts && PvzpSave::ValidPlantSeedId(id);
+    for (int32_t id = 0; id <= 48; ++id) imitaterContexts = imitaterContexts && PvzpSave::ValidImitaterSeedId(id);
+    t.Check(plantContexts && imitaterContexts, "plant and imitater contexts accept supported plant ranges");
+    bool pseudoRejected = true;
+    for (int32_t id = 55; id <= 75; ++id)
+        pseudoRejected = pseudoRejected && PvzpSave::ValidSeedId(id) &&
+            !PvzpSave::ValidPlantSeedId(id) && !PvzpSave::ValidImitaterSeedId(id);
+    t.Check(pseudoRejected, "IZombie pseudo seeds stay valid in packets but cannot become active plants or imitater targets");
+    for (int32_t id : {-2, -1, 54, 76, 79, 199, 204, 2147483647})
+        t.Check(!PvzpSave::ValidPlantSeedId(id), "active plant rejects none count gaps and intermediate-only ids");
+    for (int32_t id : {-2, 49, 53, 54, 76, 200, 201, 202, 203, 204})
+        t.Check(!PvzpSave::ValidImitaterSeedId(id), "imitater target rejects non-imitatable and custom plants");
+    t.Check(PvzpSave::ValidPacketCount(0, 10) && PvzpSave::ValidPacketCount(10, 10) &&
+        !PvzpSave::ValidPacketCount(-1, 10) && !PvzpSave::ValidPacketCount(11, 10),
+        "seed packet counts enforce nonnegative capacity bounds");
+    t.Check(PvzpSave::ValidBlobSize(0, 0) && PvzpSave::ValidBlobSize(PvzpSave::MaxBlobBytes, PvzpSave::MaxBlobBytes) &&
+        !PvzpSave::ValidBlobSize(PvzpSave::MaxBlobBytes + 1, PvzpSave::MaxBlobBytes + 1) &&
+        !PvzpSave::ValidBlobSize(5, 4), "nested blob cap and remaining-byte bounds enforced before allocation");
+    PvzpSave::TLVReader reader(nullptr, 0);
+    const uint8_t* ptr = nullptr;
+    t.Check(!reader.ReadBytes(ptr, static_cast<size_t>(-1)) && !reader.mOk,
+        "TLV length arithmetic rejects size_t overflow");
 }
 
 void PathsAndMissing(Checks& t, const fs::path& tmp) {
@@ -424,6 +834,13 @@ int PvzpModRunTests() {
         SamplePacks(t, scratch.dir);
         FunPacks(t, scratch.dir);
         CustomPlantPack(t, scratch.dir);
+        NewContentPacks(t, scratch.dir);
+        CustomPlantSecurity(t, scratch.dir);
+        CustomPlantFingerprintsAndReset(t, scratch.dir);
+        CustomPlantCollisions(t, scratch.dir);
+        DefinitionCacheReset(t, scratch.dir);
+        ZombieVariantFields(t, scratch.dir);
+        PortableSaveValidation(t);
         PathsAndMissing(t, scratch.dir);
     } catch (const std::exception& error) {
         t.Check(false, error.what());

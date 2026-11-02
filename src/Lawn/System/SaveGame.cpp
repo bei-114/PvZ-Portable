@@ -41,7 +41,9 @@
 #include "../../PvzpLib/PvzpModUI.h"
 #include "../../PvzpLib/PvzpMod.h"
 #include "../../PvzpLib/PvzpPlantFood.h"
+#include "../../PvzpLib/PvzpCustomPlants.h"
 #include "DataSync.h"
+#include "PortableSaveValidation.h"
 #include "misc/Buffer.h"
 #include <algorithm>
 #include <cstdint>
@@ -95,7 +97,9 @@ enum SaveChunkTypeV4
 	SAVE4_CHUNK_CHALLENGE = 19,
 	SAVE4_CHUNK_MUSIC = 20,
 	SAVE4_CHUNK_MOD_GAMEPLAY = 0x4D4F4401,
-	SAVE4_CHUNK_MOD_RULES = 0x4D4F4402
+	SAVE4_CHUNK_MOD_RULES = 0x4D4F4402,
+	SAVE4_CHUNK_SEED_LAYOUT = PvzpSave::SeedLayoutChunk,
+	SAVE4_CHUNK_CUSTOM_PLANTS = 0x4D4F4404
 };
 
 static constexpr const uint32_t SAVE4_CHUNK_VERSION = 1U;
@@ -123,60 +127,28 @@ static void AppendChunk(std::vector<uint8_t>& theOut, uint32_t theChunkType, con
 	AppendBytes(theOut, theChunkData.data(), theChunkData.size());
 }
 
-class TLVReader
+using TLVReader = PvzpSave::TLVReader;
+
+// Memory-only bounded readers let nested blobs reject oversized allocations and
+// known fields reject trailing bytes without changing the public DataReader ABI.
+class PortableDataReader : public DataReader
 {
 public:
-	const uint8_t* mData;
-	size_t mSize;
-	size_t mPos;
-	bool mOk;
-
-public:
-	TLVReader(const uint8_t* theData, size_t theSize)
-		: mData(theData), mSize(theSize), mPos(0), mOk(true)
-	{
-	}
-
-	bool ReadU32(uint32_t& theValue)
-	{
-		if (mPos + 4 > mSize)
-		{
-			mOk = false;
-			theValue = 0;
-			return false;
-		}
-		theValue = static_cast<uint32_t>(mData[mPos]) |
-			(static_cast<uint32_t>(mData[mPos + 1]) << 8) |
-			(static_cast<uint32_t>(mData[mPos + 2]) << 16) |
-			(static_cast<uint32_t>(mData[mPos + 3]) << 24);
-		mPos += 4;
-		return true;
-	}
-
-	bool ReadBytes(const uint8_t*& thePtr, size_t theLen)
-	{
-		if (mPos + theLen > mSize)
-		{
-			mOk = false;
-			thePtr = nullptr;
-			return false;
-		}
-		thePtr = mData + mPos;
-		mPos += theLen;
-		return true;
-	}
+	uint32_t Remaining() const { return mDataPos <= mDataLen ? mDataLen - mDataPos : 0; }
 };
+static thread_local bool gUnmarkedSeedLayout = false;
+static thread_local bool gUnmarkedPseudoSeedSeen = false;
 
 class PortableSaveContext
 {
 public:
 	bool		mReading = false;
 	bool		mFailed = false;
-	DataReader*	mReader = nullptr;
+	PortableDataReader*	mReader = nullptr;
 	DataWriter*	mWriter = nullptr;
 
 public:
-	explicit PortableSaveContext(DataReader& theReader)
+	explicit PortableSaveContext(PortableDataReader& theReader)
 	{
 		mReading = true;
 		mReader = &theReader;
@@ -556,6 +528,17 @@ static void SyncEnum32(PortableSaveContext& theContext, TEnum& theValue)
 {
 	int32_t aValue = static_cast<int32_t>(theValue);
 	theContext.SyncInt32(aValue);
+	if constexpr (std::is_same_v<TEnum, SeedType>)
+	{
+		if (!PvzpSave::ValidSeedId(aValue))
+		{
+			PvzpLogLn("Save seed id {} is invalid or belongs to an incompatible layout; restart the level instead of migrating ambiguous ids", aValue);
+			theContext.mFailed = true;
+			return;
+		}
+		if (theContext.mReading && gUnmarkedSeedLayout && PvzpSave::PseudoSeedId(aValue))
+			gUnmarkedPseudoSeedSeen = true;
+	}
 	if (theContext.mReading)
 		theValue = static_cast<TEnum>(aValue);
 }
@@ -860,6 +843,12 @@ static void SyncZombieTailPortable(PortableSaveContext& theContext, Zombie& theZ
 static void SyncPlantTailPortable(PortableSaveContext& theContext, Plant& thePlant)
 {
 	SyncEnum32(theContext, thePlant.mSeedType);
+	if (theContext.mReading && (theContext.mFailed || !PvzpSave::ValidPlantSeedId(int(thePlant.mSeedType))))
+	{
+		PvzpLogLn("Save plant seed id {} is not a plant (possibly an intermediate custom layout); restart the level", int(thePlant.mSeedType));
+		theContext.mFailed = true;
+		return;
+	}
 	theContext.SyncInt32(thePlant.mPlantCol);
 	theContext.SyncInt32(thePlant.mAnimCounter);
 	theContext.SyncInt32(thePlant.mFrame);
@@ -900,6 +889,12 @@ static void SyncPlantTailPortable(PortableSaveContext& theContext, Plant& thePla
 	theContext.SyncInt32(thePlant.mWakeUpCounter);
 	SyncEnum32(theContext, thePlant.mOnBungeeState);
 	SyncEnum32(theContext, thePlant.mImitaterType);
+	if (theContext.mReading && (theContext.mFailed || !PvzpSave::ValidImitaterSeedId(int(thePlant.mImitaterType))))
+	{
+		PvzpLogLn("Save plant imitater target {} is unsupported; restart the level", int(thePlant.mImitaterType));
+		theContext.mFailed = true;
+		return;
+	}
 	theContext.SyncInt32(thePlant.mPottedPlantIndex);
 	theContext.SyncBool(thePlant.mAnimPing);
 	theContext.SyncBool(thePlant.mDead);
@@ -1034,11 +1029,12 @@ static void AppendFieldWithSync(std::vector<uint8_t>& theOut, uint32_t theFieldI
 template <typename TReaderFn>
 static bool ApplyFieldWithSync(const uint8_t* theData, size_t theSize, TReaderFn theReaderFn)
 {
-	DataReader aReader;
+	if (theSize > UINT32_MAX) return false;
+	PortableDataReader aReader;
 	aReader.OpenMemory(theData, static_cast<uint32_t>(theSize), false);
 	PortableSaveContext aContext(aReader);
 	theReaderFn(aContext);
-	return !aContext.mFailed;
+	return !aContext.mFailed && aReader.Remaining() == 0;
 }
 
 static void WriteGameObjectField(std::vector<uint8_t>& theOut, uint32_t theFieldId, GameObject& theObject)
@@ -1069,8 +1065,11 @@ static bool ReadTLVBlob(PortableSaveContext& theContext, std::vector<uint8_t>& t
 {
 	uint32_t aSize = 0;
 	theContext.SyncUInt32(aSize);
-	if (theContext.mFailed)
+	if (theContext.mFailed || !PvzpSave::ValidBlobSize(aSize, theContext.mReader->Remaining()))
+	{
+		theContext.mFailed = true;
 		return false;
+	}
 	theBlob.resize(aSize);
 	if (aSize > 0)
 		theContext.SyncBytes(theBlob.data(), aSize);
@@ -1087,6 +1086,8 @@ static void SyncSingleObjectTLV(PortableSaveContext& theContext, TObject& theObj
 		std::vector<uint8_t> aBlob;
 		if (!ReadTLVBlob(theContext, aBlob))
 			return;
+		if (!PvzpSave::ValidFields({aBlob.data(), aBlob.size()}, HAS_GAME_OBJECT_FIELD ? 1U : 0U, true))
+		{ theContext.mFailed = true; return; }
 		TLVReader aReader(aBlob.data(), aBlob.size());
 		while (aReader.mOk && aReader.mPos < aReader.mSize)
 		{
@@ -1101,10 +1102,10 @@ static void SyncSingleObjectTLV(PortableSaveContext& theContext, TObject& theObj
 			{
 			case 1U:
 				if constexpr (HAS_GAME_OBJECT_FIELD)
-					ReadGameObjectField(aFieldData, aFieldSize, theObject);
+					if (!ReadGameObjectField(aFieldData, aFieldSize, theObject)) theContext.mFailed = true;
 				break;
 			case PORTABLE_FIELD_TAIL:
-				ApplyFieldWithSync(aFieldData, aFieldSize, [&](PortableSaveContext& c){ theTailSync(c, theObject); });
+				if (!ApplyFieldWithSync(aFieldData, aFieldSize, [&](PortableSaveContext& c){ theTailSync(c, theObject); })) theContext.mFailed = true;
 				break;
 			default: break;
 			}
@@ -1418,7 +1419,7 @@ static void SyncDataArrayIdsOnlyPortable(PortableSaveContext& theContext, DataAr
 }
 
 template <typename T, typename TWriteFn, typename TReadFn>
-static void SyncDataArrayPortableTLV(PortableSaveContext& theContext, DataArray<T>& theDataArray, TWriteFn theWriteFn, TReadFn theReadFn)
+static void SyncDataArrayPortableTLV(PortableSaveContext& theContext, DataArray<T>& theDataArray, TWriteFn theWriteFn, TReadFn theReadFn, bool theHasTail = false)
 {
 	theContext.SyncUInt32(theDataArray.mFreeListHead);
 	theContext.SyncUInt32(theDataArray.mMaxUsedCount);
@@ -1443,12 +1444,14 @@ static void SyncDataArrayPortableTLV(PortableSaveContext& theContext, DataArray<
 		{
 			uint32_t aItemSize = 0;
 			theContext.SyncUInt32(aItemSize);
-			if(theContext.mFailed || aItemSize>1024U*1024U){theContext.mFailed=true;return;}
+			if(theContext.mFailed || aItemSize>PvzpSave::MaxBlobBytes || aItemSize>theContext.mReader->Remaining()){theContext.mFailed=true;return;}
 			T& anItem = theDataArray.DataArrayResetItemAt(i);
 			std::vector<uint8_t> aItemData;
 			aItemData.resize(aItemSize);
 			if (aItemSize > 0)
 				theContext.SyncBytes(aItemData.data(), aItemSize);
+			if (!PvzpSave::ValidFields({aItemData.data(), aItemSize}, 1, theHasTail))
+			{ theContext.mFailed = true; return; }
 			TLVReader aReader(aItemData.data(), aItemSize);
 			while (aReader.mOk && aReader.mPos < aReader.mSize)
 			{
@@ -1460,6 +1463,7 @@ static void SyncDataArrayPortableTLV(PortableSaveContext& theContext, DataArray<
 				if (!aReader.ReadBytes(aFieldData, aFieldSize))
 					break;
 				theReadFn(aFieldId, aFieldData, aFieldSize, anItem);
+				if (theContext.mFailed) return;
 			}
 			if(!aReader.mOk){theContext.mFailed=true;return;}
 		}
@@ -1497,14 +1501,14 @@ static void SyncDataArrayObjectsTLV(PortableSaveContext& theContext, DataArray<T
 			{
 			case 1U:
 				if constexpr (std::is_base_of_v<GameObject, T>)
-					ReadGameObjectField(aData, aSize, anItem);
+					if (!ReadGameObjectField(aData, aSize, anItem)) theContext.mFailed = true;
 				break;
 			case PORTABLE_FIELD_TAIL:
 				if(!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ theTailSync(c, anItem); }))theContext.mFailed=true;
 				break;
 			default: break;
 			}
-		});
+		}, true);
 }
 
 // Field IDs for Board base: These IDs are part of the on-disk format and must NOT be renumbered.
@@ -1746,6 +1750,8 @@ static void SyncBoardBasePortable(PortableSaveContext& theContext, Board* theBoa
 		std::vector<uint8_t> aBlob;
 		if (!ReadTLVBlob(theContext, aBlob))
 			return;
+		if (!PvzpSave::ValidFields({aBlob.data(), aBlob.size()}, BOARD_FIELD_COUNT - 1))
+		{ theContext.mFailed = true; return; }
 		TLVReader aReader(aBlob.data(), aBlob.size());
 		while (aReader.mOk && aReader.mPos < aReader.mSize)
 		{
@@ -1822,14 +1828,14 @@ static void SyncParticleSystemsPortable(PortableSaveContext& theContext, Board* 
 				SyncParticleSystemPortable(theBoard, &theSystem, aContext);
 			});
 		},
-		[theBoard](uint32_t aFieldId, const uint8_t* aData, size_t aSize, PvzpParticleSystem& theSystem)
+		[theBoard, &theContext](uint32_t aFieldId, const uint8_t* aData, size_t aSize, PvzpParticleSystem& theSystem)
 		{
 			if (aFieldId == 1U)
 			{
-				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& aContext)
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& aContext)
 				{
 					SyncParticleSystemPortable(theBoard, &theSystem, aContext);
-				});
+				})) theContext.mFailed = true;
 			}
 		});
 }
@@ -1844,14 +1850,14 @@ static void SyncReanimationsPortable(PortableSaveContext& theContext, Board* the
 				SyncReanimationPortable(theBoard, &theReanimation, aContext);
 			});
 		},
-		[theBoard](uint32_t aFieldId, const uint8_t* aData, size_t aSize, Reanimation& theReanimation)
+		[theBoard, &theContext](uint32_t aFieldId, const uint8_t* aData, size_t aSize, Reanimation& theReanimation)
 		{
 			if (aFieldId == 1U)
 			{
-				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& aContext)
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& aContext)
 				{
 					SyncReanimationPortable(theBoard, &theReanimation, aContext);
-				});
+				})) theContext.mFailed = true;
 			}
 		});
 }
@@ -1866,14 +1872,14 @@ static void SyncTrailsPortable(PortableSaveContext& theContext, Board* theBoard)
 				SyncTrailPortable(theBoard, &theTrail, aContext);
 			});
 		},
-		[theBoard](uint32_t aFieldId, const uint8_t* aData, size_t aSize, Trail& theTrail)
+		[theBoard, &theContext](uint32_t aFieldId, const uint8_t* aData, size_t aSize, Trail& theTrail)
 		{
 			if (aFieldId == 1U)
 			{
-				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& aContext)
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& aContext)
 				{
 					SyncTrailPortable(theBoard, &theTrail, aContext);
-				});
+				})) theContext.mFailed = true;
 			}
 		});
 }
@@ -1907,16 +1913,22 @@ static void SyncSeedPacketsPortable(PortableSaveContext& theContext, Board* theB
 {
 	int aCount = SEEDBANK_MAX;
 	theContext.SyncInt32(aCount);
-	for (int i = 0; i < aCount && i < SEEDBANK_MAX; i++)
+	if (theContext.mReading && (theContext.mFailed || !PvzpSave::ValidPacketCount(aCount, SEEDBANK_MAX)))
+	{ theContext.mFailed = true; return; }
+	for (int i = 0; i < aCount; i++)
 	{
 		if (theContext.mReading)
 		{
 			uint32_t aItemSize = 0;
 			theContext.SyncUInt32(aItemSize);
+			if (theContext.mFailed || aItemSize > PvzpSave::MaxBlobBytes || aItemSize > theContext.mReader->Remaining())
+			{ theContext.mFailed = true; return; }
 			std::vector<uint8_t> aItemData;
 			aItemData.resize(aItemSize);
 			if (aItemSize > 0)
 				theContext.SyncBytes(aItemData.data(), aItemSize);
+			if (!PvzpSave::ValidFields({aItemData.data(), aItemSize}, 1, true))
+			{ theContext.mFailed = true; return; }
 			TLVReader aReader(aItemData.data(), aItemSize);
 			while (aReader.mOk && aReader.mPos < aReader.mSize)
 			{
@@ -1929,8 +1941,8 @@ static void SyncSeedPacketsPortable(PortableSaveContext& theContext, Board* theB
 					break;
 				switch (aFieldId)
 				{
-				case 1U: ReadGameObjectField(aFieldData, aFieldSize, theBoard->mSeedBank->mSeedPackets[i]); break;
-				case PORTABLE_FIELD_TAIL: ApplyFieldWithSync(aFieldData, aFieldSize, [&](PortableSaveContext& c){ SyncSeedPacketTailPortable(c, theBoard->mSeedBank->mSeedPackets[i]); }); break;
+				case 1U: if (!ReadGameObjectField(aFieldData, aFieldSize, theBoard->mSeedBank->mSeedPackets[i])) theContext.mFailed = true; break;
+				case PORTABLE_FIELD_TAIL: if (!ApplyFieldWithSync(aFieldData, aFieldSize, [&](PortableSaveContext& c){ SyncSeedPacketTailPortable(c, theBoard->mSeedBank->mSeedPackets[i]); })) theContext.mFailed = true; break;
 				default: break;
 				}
 			}
@@ -1983,6 +1995,33 @@ static void SyncBoardPortable(PortableSaveContext& theContext, Board* theBoard)
 }
 
 
+static void SyncCustomPlantsState(PortableSaveContext& c, Board* board)
+{
+	std::vector<uint8_t> bytes;
+	uint32_t size = 0;
+	if (!c.mReading) {
+		bytes = PvzpCustomPlants::Save(board);
+		if (bytes.empty() || bytes.size() > PvzpSave::MaxBlobBytes) { c.mFailed = true; return; }
+		size = static_cast<uint32_t>(bytes.size());
+	}
+	c.SyncUInt32(size);
+	if (c.mFailed || size > PvzpSave::MaxBlobBytes || (c.mReading && size > c.mReader->Remaining()))
+	{ c.mFailed = true; return; }
+	if (c.mReading) bytes.resize(size);
+	if (size) c.SyncBytes(bytes.data(), size);
+	if (c.mReading && !c.mFailed) {
+		for (Plant* p : board->mPlants) { p->mApp = board->mApp; p->mBoard = board; }
+		if (!PvzpCustomPlants::Load(board, bytes)) c.mFailed = true;
+	}
+}
+
+static void SyncSeedLayout(PortableSaveContext& c, Board*)
+{
+	uint32_t layout = PvzpSave::StableSeedLayout;
+	c.SyncUInt32(layout);
+	if (layout != PvzpSave::StableSeedLayout) c.mFailed = true;
+}
+
 static void SyncModRules(PortableSaveContext& c, Board*)
 {
 	uint64_t fingerprint=PvzpMod::RulesFingerprint();
@@ -1998,7 +2037,7 @@ static void SyncModGameplay(PortableSaveContext& c, Board* board)
 	uint32_t size = 0;
 	if (!c.mReading) { bytes=PvzpModUI::Save(board);if(bytes.empty()){c.mFailed=true;return;}size=static_cast<uint32_t>(bytes.size()); }
 	c.SyncUInt32(size);
-	if (c.mFailed || size > 9U*1024U*1024U) { c.mFailed=true;return; }
+	if (c.mFailed || size > 9U*1024U*1024U || (c.mReading && size > c.mReader->Remaining())) { c.mFailed=true;return; }
 	if (c.mReading) bytes.resize(size);
 	if (size) c.SyncBytes(bytes.data(),size);
 	if (c.mReading && !c.mFailed)
@@ -2061,6 +2100,10 @@ static ChunkSyncFn GetChunkSyncFn(uint32_t theChunkType)
 		return SyncModGameplay;
 	case SAVE4_CHUNK_MOD_RULES:
 		return SyncModRules;
+	case SAVE4_CHUNK_SEED_LAYOUT:
+		return SyncSeedLayout;
+	case SAVE4_CHUNK_CUSTOM_PLANTS:
+		return SyncCustomPlantsState;
 	default:
 		return nullptr;
 	}
@@ -2098,40 +2141,9 @@ static bool ReadChunkV4(uint32_t theChunkType, const uint8_t* theData, size_t th
 	ChunkSyncFn aSyncFn = GetChunkSyncFn(theChunkType);
 	if (!aSyncFn)
 		return true;
-	if (theSize < 4)
-		return false;
-
-	TLVReader aReader(theData, theSize);
-	uint32_t aChunkVersion = 0;
-	if (!aReader.ReadU32(aChunkVersion))
-		return false;
-	if (aChunkVersion != SAVE4_CHUNK_VERSION)
-		return false;
-
-	bool aApplied = false;
-	while (aReader.mOk && aReader.mPos < aReader.mSize)
-	{
-		uint32_t aFieldId = 0;
-		uint32_t aFieldSize = 0;
-		if (!aReader.ReadU32(aFieldId) || !aReader.ReadU32(aFieldSize))
-			break;
-		const uint8_t* aFieldData = nullptr;
-		if (!aReader.ReadBytes(aFieldData, aFieldSize))
-			break;
-
-		if (aFieldId == 1U)
-		{
-			DataReader aFieldReader;
-			aFieldReader.OpenMemory(aFieldData, static_cast<uint32_t>(aFieldSize), false);
-			PortableSaveContext aContext(aFieldReader);
-			aSyncFn(aContext, theBoard);
-			if (aContext.mFailed)
-				return false;
-			aApplied = true;
-		}
-	}
-
-	return aApplied;
+	PvzpSave::Span body;
+	if (!PvzpSave::ChunkBody({theData, theSize}, body)) return false;
+	return ApplyFieldWithSync(body.data, body.size, [&](PortableSaveContext& c){ aSyncFn(c, theBoard); });
 }
 
 static void FixBoardAfterLoad(Board* theBoard)
@@ -2350,26 +2362,32 @@ static bool LawnLoadGameV4(Board* theBoard, const std::string& theFilePath)
 	if (aCrc != aHeader.mPayloadCrc)
 		return false;
 
-	TLVReader aReader(aPayload, aHeader.mPayloadSize);
-	bool aBaseLoaded = false;
-	while (aReader.mOk && aReader.mPos < aReader.mSize)
+	std::vector<PvzpSave::ChunkView> chunks;
+	bool marked = false;
+	if (!PvzpSave::PreflightPayload({aPayload, aHeader.mPayloadSize}, chunks, marked))
 	{
-		uint32_t aChunkType = 0;
-		uint32_t aChunkSize = 0;
-		if (!aReader.ReadU32(aChunkType) || !aReader.ReadU32(aChunkSize))
-			break;
-		const uint8_t* aChunkData = nullptr;
-		if (!aReader.ReadBytes(aChunkData, aChunkSize))
-			break;
-
-		if (!ReadChunkV4(aChunkType, aChunkData, aChunkSize, theBoard))
-			return false;
-		if (aChunkType == SAVE4_CHUNK_BOARD_BASE)
-			aBaseLoaded = true;
-	}
-
-	if (!aBaseLoaded)
+		PvzpLogLn("Save rejected: malformed/duplicate chunk or incompatible seed layout; restart the level (save left untouched)");
 		return false;
+	}
+	// Only envelopes are preflighted. A nested entity failure can still leave a
+	// partially imported Board; callers must discard it, not continue gameplay.
+	struct LayoutScope {
+		bool oldUnmarked = gUnmarkedSeedLayout, oldSeen = gUnmarkedPseudoSeedSeen;
+		explicit LayoutScope(bool unmarked) { gUnmarkedSeedLayout = unmarked; gUnmarkedPseudoSeedSeen = false; }
+		~LayoutScope() { gUnmarkedSeedLayout = oldUnmarked; gUnmarkedPseudoSeedSeen = oldSeen; }
+	} layoutScope(!marked);
+	for (const auto& chunk : chunks)
+	{
+		if (chunk.type == SAVE4_CHUNK_MOD_GAMEPLAY || chunk.type == SAVE4_CHUNK_CUSTOM_PLANTS) continue;
+		if (!ReadChunkV4(chunk.type, chunk.bytes.data, chunk.bytes.size, theBoard)) return false;
+	}
+	// Side-state uses generation ids and must import after entity chunks even
+	// when an otherwise-valid file reordered the chunk envelopes.
+	for (const auto& chunk : chunks)
+		if (chunk.type == SAVE4_CHUNK_MOD_GAMEPLAY || chunk.type == SAVE4_CHUNK_CUSTOM_PLANTS)
+			if (!ReadChunkV4(chunk.type, chunk.bytes.data, chunk.bytes.size, theBoard)) return false;
+	if (!marked && gUnmarkedPseudoSeedSeen)
+		PvzpLogLn("Unmarked save contains pseudo seed ids: interpreting baseline NUM_SEED_TYPES=54; intermediate custom-inserted layouts are ambiguous and are NOT migrated. Restart the level if its contents differ.");
 
 	FixBoardAfterLoad(theBoard);
 	theBoard->mApp->mGameScene = GameScenes::SCENE_PLAYING;
@@ -2865,6 +2883,7 @@ bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 bool LawnSaveGame(Board* theBoard, const std::string& theFilePath)
 {
 	std::vector<uint8_t> aPayload;
+	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_SEED_LAYOUT, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_BOARD_BASE, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_ZOMBIES, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_PLANTS, theBoard)) return false;
@@ -2887,6 +2906,7 @@ bool LawnSaveGame(Board* theBoard, const std::string& theFilePath)
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_MUSIC, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_MOD_GAMEPLAY, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_MOD_RULES, theBoard)) return false;
+	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_CUSTOM_PLANTS, theBoard)) return false;
 
 	SaveFileHeaderV4 aHeader{};
 	memcpy(aHeader.mMagic, SAVE_FILE_MAGIC_V4, sizeof(aHeader.mMagic));

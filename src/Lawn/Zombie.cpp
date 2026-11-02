@@ -33,6 +33,7 @@
 #include "Projectile.h"
 #include "../LawnApp.h"
 #include "PvzpLib/PvzpMod.h"
+#include "PvzpLib/PvzpCustomPlants.h"
 #include "../Resources.h"
 #include "System/PlayerInfo.h"
 #include "System/Zombatar.h"
@@ -135,10 +136,10 @@ const ZombieDefinition& GetZombieDefinition(ZombieType theZombieType)
 
 	// PvzpMod：同上，僵尸表也走一份可覆盖副本
 	static ZombieDefinition aModdedDefs[NUM_ZOMBIE_TYPES];
-	static bool aModsApplied = false;
-	if (!aModsApplied)
+	static uint64_t aRevision = ~uint64_t(0);
+	if (aRevision != PvzpMod::SnapshotRevision())
 	{
-		aModsApplied = true;
+		aRevision = PvzpMod::SnapshotRevision();
 		for (int i = 0; i < NUM_ZOMBIE_TYPES; i++)
 		{
 			aModdedDefs[i] = gZombieDefs[i];
@@ -4155,6 +4156,9 @@ void Zombie::UpdateZombieWalking()
 			}
 		}
 
+		// Apply once to actual displacement, not mVelX (which is recalculated by
+		// phase changes and sometimes driven by the animation's ground track).
+		aSpeed *= PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "speedPercent", 100) / 100.0f;
 		if (IsWalkingBackwards() || mZombiePhase == ZombiePhase::PHASE_DANCER_DANCING_IN)
 		{
 			mPosX += aSpeed;
@@ -5689,7 +5693,10 @@ void Zombie::DrawReanim(Graphics* g, const ZombieDrawPosition& theDrawPos, int t
 		aFadeAlpha = std::clamp(255 * mZombieFade / 10, 0, 255);
 	}
 
-	Color aColorOverride(255, 255, 255, aFadeAlpha);
+	const char* aModName = GetZombieDefinition(mZombieType).mZombieName;
+	Color aColorOverride(PvzpMod::ZombieInt(aModName, "tintR", 255),
+		PvzpMod::ZombieInt(aModName, "tintG", 255),
+		PvzpMod::ZombieInt(aModName, "tintB", 255), aFadeAlpha);
 	Color aExtraAdditiveColor = Color::Black;
 	bool aEnableExtraAdditiveDraw = false;
 	if (mZombiePhase == ZombiePhase::PHASE_ZOMBIE_BURNED)
@@ -7124,6 +7131,8 @@ void Zombie::EatPlant(Plant* thePlant)
 		}
 	}
 
+	// Commit damage-step events before a fatal bite deletes the plant.
+	PvzpCustomPlants::ObserveDamage(mBoard, thePlant);
 	if (thePlant->mPlantHealth <= 0)
 	{
 		mApp->PlaySample(SOUND_GULP);
@@ -7309,6 +7318,18 @@ void Zombie::DropLoot()
 
 	mDroppedLoot = true;
 	int aZombieValue = GetZombieDefinition(mZombieType).mZombieValue;
+	// Bounties reuse mDroppedLoot's persisted, once-only guard. Friendly
+	// summons and I,Zombie cannot farm the bounty.
+	if (!mMindControlled && !mApp->IsIZombieLevel())
+	{
+		int aBounty = PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "sunDrop", 0);
+		while (aBounty >= 25)
+		{
+			mBoard->AddCoin(mX + 30, mY + 20, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_COIN);
+			aBounty -= 25;
+		}
+		if (aBounty > 0) mBoard->AddSunMoney(aBounty);
+	}
 	if (mApp->IsLittleTroubleLevel() && Rand(4) != 0)
 	{
 		return;

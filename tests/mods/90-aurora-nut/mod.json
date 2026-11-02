@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.aurora-nut",
+  "name": "Aurora Nut",
+  "priority": 90,
+  "enabled": true,
+  "customPlants": [
+    {
+      "slot": 3,
+      "name": "Aurora Nut",
+      "behavior": "nut",
+      "tint": "purple",
+      "cost": 125,
+      "health": 1800,
+      "step": 600,
+      "events": ["chill:row"],
+      "interval": 800,
+      "pulseEvents": ["chill:row"],
+      "foodEvents": ["chill", "heal:1800", "sun:100"]
+    }
+  ]
+}

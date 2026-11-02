@@ -348,11 +348,8 @@ int DefaultHealth(SeedType seed, int original) { auto s=Query(seed); return s ? 
 bool Apply(Board* b, Plant* p)
 {
     if (!b || !p || p->mBoard != b || p->mDead || p->mSquished || !p->IsInPlay() || p->mOnBungeeState != NOT_ON_BUNGEE) return false;
-    if (PvzpCustomPlants::IsBrain(p->mSeedType))
-    {
-        PvzpCustomPlants::BrainUltimate(b, p);
-        return true;
-    }
+    if (PvzpCustomPlants::IsCustom(p->mSeedType))
+        return PvzpCustomPlants::ApplyFood(b, p);
     const SkillInfo* info = Query(p->mSeedType);
     if (!info) return false;
     uint32_t id = b->mPlants.DataArrayGetID(p);

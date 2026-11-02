@@ -12,7 +12,8 @@
       "cost": 200,
       "health": 6000,
       "step": 1000,
-      "events": ["sun:150", "plant:random", "heal:1200", "chill", "sun:75"]
+      "events": ["sun:150", "plant:random", "heal:1200", "chill", "sun:75"],
+      "foodEvents": ["sun:150", "plant:random", "heal:2000"]
     },
     {
       "slot": 1,
@@ -23,7 +24,8 @@
       "step": 1000,
       "events": ["sun:100", "plant:random", "heal:800"],
       "badEvents": ["zombie:GARGANTUAR", "zombie:BUNGEE", "zombie:DIGGER", "destroy:plant", "zombie:BALLOON"],
-      "badChance": 50
+      "badChance": 50,
+      "foodEvents": ["sun:100", "plant:random", "chill"]
     }
   ]
 }

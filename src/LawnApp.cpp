@@ -1203,6 +1203,19 @@ void LawnApp::Init()
 		mPlayerInfo = mProfileMgr->GetAnyProfile();
 	}
 
+#if defined(__linux__) && !defined(__ANDROID__)
+	// Live regression owns a disposable HOME. Auto-create only its test profile;
+	// this path is opt-in and is not compiled into the Android application.
+	if (std::getenv("PVZP_CUSTOM_TEST"))
+	{
+		if (!mPlayerInfo) mPlayerInfo = mProfileMgr->AddProfile("Regression");
+		mPlayerInfo->mFinishedAdventure = std::max(mPlayerInfo->mFinishedAdventure, 1U);
+		mPlayerInfo->mHasUnlockedSurvivalMode = 1;
+		for (int i = STORE_ITEM_PLANT_GATLINGPEA; i <= STORE_ITEM_PLANT_IMITATER; ++i)
+			mPlayerInfo->mPurchases[i] = 1;
+	}
+#endif
+
 	// Dev-only: PVZP_DEV_UNLOCK=1 makes a fresh profile fully unlocked so the
 	// seed chooser / survival screens can be inspected without playing through
 	// the tutorial levels.
@@ -1746,7 +1759,13 @@ void LawnApp::LoadingCompleted()
 	SafeDeleteWidget(mTitleScreen.release());
 
 	mResourceManager->DeleteImage("IMAGE_TITLESCREEN");
-
+#if defined(__linux__) && !defined(__ANDROID__)
+	if (std::getenv("PVZP_CUSTOM_TEST") && mPlayerInfo)
+	{
+		PreNewGame(GameMode::GAMEMODE_SURVIVAL_NORMAL_STAGE_1, false);
+		return;
+	}
+#endif
 	ShowGameSelector();
 }
 

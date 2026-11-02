@@ -79,6 +79,7 @@ constexpr const int FLAG_RAISE_TIME = 100;
 // unless explicitly launched with PVZP_ELECTRIC_TEST in a separate test HOME.
 void PvzpRunElectricRegression(Board* theBoard);
 void PvzpRunGameplayRegression(Board* theBoard);
+void PvzpRunCustomRegression(Board* theBoard);
 #endif
 
 bool gShownMoreSunTutorial = false;
@@ -4401,18 +4402,6 @@ void Board::MouseDown(int x, int y, int theClickCount)
 		return;
 	}
 
-	if (theClickCount > 0 && mCursorObject->mCursorType == CursorType::CURSOR_TYPE_NORMAL && !mPlantFoodSelecting && !PvzpModTools::IsActive(this))
-	{
-		int aBrainCol = PixelToGridX(x, y);
-		int aBrainRow = PixelToGridY(x, y);
-		Plant* aBrain = (aBrainCol >= 0 && aBrainRow >= 0) ? GetTopPlantAt(aBrainCol, aBrainRow, PlantPriority::TOPPLANT_ANY) : nullptr;
-		if (aBrain && PvzpCustomPlants::IsBrain(aBrain->mSeedType))
-		{
-			PvzpCustomPlants::BrainClick(this, aBrain);
-			mDbgConsumeMouseUp = true;
-			return;
-		}
-	}
 	// Consume the entire debug gesture, including MouseUp. Tools and seed
 	// packets must never be intercepted by a plant's active ability.
 	if (theClickCount > 0 && DbgMouseDown(x, y))
@@ -4432,6 +4421,12 @@ void Board::MouseDown(int x, int y, int theClickCount)
 		if (aPlantHit.mObjectType == GameObjectType::OBJECT_TYPE_PLANT)
 		{
 			Plant* aPlant = static_cast<Plant*>(aPlantHit.mObject);
+			if (!aPlant->mDead && !aPlant->NotOnGround() && PvzpCustomPlants::IsBrain(aPlant->mSeedType))
+			{
+				PvzpCustomPlants::BrainClick(this, aPlant);
+				mDbgConsumeMouseUp = true;
+				return;
+			}
 			if (!aPlant->mDead && !aPlant->NotOnGround() &&
 				aPlant->mSeedType == SeedType::SEED_ELECTRIC_GATLINGPEA)
 			{
@@ -5890,6 +5885,9 @@ void Board::Update()
 	UpdateLevelEndSequence();
 	mPrevMouseX = mApp->mWidgetManager->mLastMouseX;
 	mPrevMouseY = mApp->mWidgetManager->mLastMouseY;
+#ifndef __ANDROID__
+	PvzpRunCustomRegression(this);
+#endif
 }
 
 void Board::UpdateLayers()

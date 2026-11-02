@@ -35,6 +35,7 @@
 #include "../../GameConstants.h"
 #include "../System/Music.h"
 #include <algorithm>
+#include <cstdlib>
 
 TitleScreen::TitleScreen(LawnApp* theApp)
 {
@@ -52,6 +53,9 @@ TitleScreen::TitleScreen(LawnApp* theApp)
 	mDrawnYet = false;
 	mNeedToInit = true;
 	mQuickLoadKey = KeyCode::KEYCODE_UNKNOWN;
+#if defined(__linux__) && !defined(__ANDROID__)
+	if (std::getenv("PVZP_CUSTOM_TEST")) mQuickLoadKey = static_cast<KeyCode>(0x4D);
+#endif
 	mDisplayPartnerLogo = mApp->GetBoolean("DisplayPartnerLogo", false);
 	mTitleState = TitleState::TITLESTATE_WAITING_FOR_FIRST_DRAW;
 	mTitleStateDuration = 0;

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.bounty-zombies",
+  "name": "Bounty Raiders",
+  "priority": 95,
+  "enabled": true,
+  "zombies": {
+    "NEWSPAPER_ZOMBIE": {
+      "health": 400,
+      "speedPercent": 150,
+      "sunDrop": 75,
+      "tintR": 255,
+      "tintG": 195,
+      "tintB": 100
+    },
+    "BUCKETHEAD_ZOMBIE": {
+      "health": 350,
+      "speedPercent": 125,
+      "sunDrop": 100,
+      "tintR": 120,
+      "tintG": 215,
+      "tintB": 255
+    }
+  }
+}

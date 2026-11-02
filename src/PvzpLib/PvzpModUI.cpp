@@ -3,6 +3,7 @@
 #include "PvzpModTools.h"
 #include "PvzpPlantFood.h"
 #include "PvzpMod.h"
+#include "PvzpCustomPlants.h"
 #include "../Lawn/Board.h"
 #include "../LawnApp.h"
 #include "../Resources.h"
@@ -15,11 +16,12 @@
 #include <cmath>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace {
 struct Fan { int volleys=0, delay=0; };
 struct UIState {
- int page=0, seed=53, zombie=0;
+ int page=0, seed=SEED_ELECTRIC_GATLINGPEA, zombie=0;
  bool sunLock=false, recharge=false;
  std::map<uint32_t,Fan> fans;
 };
@@ -69,14 +71,33 @@ std::string Label(Board* b,int i){
  }
  return "";
 }
+bool DebugSeedAvailable(int seed)
+{
+	const auto type = static_cast<SeedType>(seed);
+	return (type >= SEED_PEASHOOTER && type < SEED_IMITATER) ||
+		type == SEED_ELECTRIC_GATLINGPEA || PvzpCustomPlants::IsSlotUsed(type);
+}
 void SeedStep(UIState& s,int dir)
 {
-	static const int aSeeds[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,53,200,201,202,203};
-	const int aCount = static_cast<int>(sizeof(aSeeds)/sizeof(aSeeds[0]));
+	std::vector<int> aSeeds;
+	// Imitater needs a copied seed type, which the debug placement tool does not supply.
+	for (int i = int(SEED_PEASHOOTER); i < int(SEED_IMITATER); ++i) aSeeds.push_back(i);
+	aSeeds.push_back(SEED_ELECTRIC_GATLINGPEA);
+	for (int i = int(SEED_CUSTOM_0); i <= int(SEED_CUSTOM_3); ++i)
+		if (PvzpCustomPlants::IsSlotUsed(static_cast<SeedType>(i))) aSeeds.push_back(i);
+	const int aCount = static_cast<int>(aSeeds.size());
 	int aIndex = 0;
 	for (int i = 0; i < aCount; ++i) if (aSeeds[i] == s.seed) { aIndex = i; break; }
 	aIndex = (aIndex + dir + aCount) % aCount;
 	s.seed = aSeeds[aIndex];
+}
+std::string DebugSeedName(int seed)
+{
+	const auto type = static_cast<SeedType>(seed);
+	if (PvzpCustomPlants::IsCustom(type))
+		for (const auto& plant : PvzpMod::CustomPlants())
+			if (plant.slot == seed - int(SEED_CUSTOM_0)) return plant.name;
+	return GetPlantDefinition(type).mPlantName;
 }
 constexpr ZombieType spawnKinds[]={ZOMBIE_NORMAL,ZOMBIE_TRAFFIC_CONE,ZOMBIE_PAIL,ZOMBIE_NEWSPAPER,ZOMBIE_FOOTBALL,ZOMBIE_BALLOON,ZOMBIE_SNORKEL,ZOMBIE_GARGANTUAR};
 void Spawn(Board* b,int row){auto& s=states[b];if(b->mZombies.mSize+1>=b->mZombies.mMaxSize)return; auto z=spawnKinds[s.zombie]; if(z==ZOMBIE_SNORKEL && !b->StageHasPool())return; b->AddZombieInRow(z,row,Zombie::ZOMBIE_WAVE_DEBUG);}
@@ -90,7 +111,7 @@ bool Board::CanUseModTools() const {
  mApp->mGameMode!=GAMEMODE_CHALLENGE_ZEN_GARDEN&&mApp->mGameMode!=GAMEMODE_TREE_OF_WISDOM;
 }
 void Board::ResetModGameplay(){
- states.erase(this); PvzpModTools::Reset(this);PvzpPlantFood::Reset(this);ResetElectricProjectiles(this);
+ states.erase(this); PvzpModTools::Reset(this);PvzpPlantFood::Reset(this);ResetElectricProjectiles(this);PvzpCustomPlants::Reset(this);
  mDbgOpen=false;mDbgPlantPending=false;mPlantFoodSelecting=false;mDbgConsumeMouseUp=false;
  mPlantFoodCount=1;mPlantFoodTimer=0;mFanVolleys=0;mFanTicks=0;mFanPlantID=0xFFFFFFFFU;
 }
@@ -178,13 +199,15 @@ void Board::DrawDbgPanel(Graphics* graphics){
  if(mDbgPlantPending)Box(g,Rect(160,80,430,30),"DEBUG PLACE: ANY CELL / DBG CANCEL",true);
  if(!mDbgOpen)return;
  g->SetColor(Color(13,23,34,246));g->FillRect(540,86,256,416);
- std::string title=s.page==3?"MOD LOAD STATUS":s.page==1?std::string(GetZombieDefinition(spawnKinds[s.zombie]).mZombieName):GetPlantDefinition(static_cast<SeedType>(s.seed)).mPlantName;
+ if(!DebugSeedAvailable(s.seed))s.seed=SEED_ELECTRIC_GATLINGPEA;
+ std::string title=s.page==3?"MOD LOAD STATUS":s.page==1?std::string(GetZombieDefinition(spawnKinds[s.zombie]).mZombieName):DebugSeedName(s.seed);
  Text(g,title,668,108,Color(150,235,198));
  for(int i=0;i<9;++i)Box(g,PvzpModUI::ActionRect(this,i),Label(this,i));
 }
 bool Board::DbgMouseDown(int x,int y){
  if(!CanUseModTools())return false;
  auto& s=states[this];
+ if(!DebugSeedAvailable(s.seed))s.seed=SEED_ELECTRIC_GATLINGPEA;
  if(PvzpModTools::GetDebugRect(this).Contains(x,y)){
   PvzpModTools::Cancel(this);mPlantFoodSelecting=false;ClearCursor();
   if(mDbgPlantPending)mDbgPlantPending=false;else mDbgOpen=!mDbgOpen;
@@ -217,7 +240,7 @@ bool Board::DbgMouseDown(int x,int y){
   }}else{switch(i){
    case 0:mLevelComplete=true;mDbgOpen=false;break;case 1:PvzpModUI::UnlockProfile(mApp);break;
    case 2:PvzpModTools::Cancel(this);mPlantFoodSelecting=false;mDbgPlantPending=false;ClearCursor();break;
-   case 3:mSeedBank->RefreshAllPackets();break;case 4:s.seed=53;break;case 5:s.seed=1;break;case 6:s.seed=3;break;
+   case 3:mSeedBank->RefreshAllPackets();break;case 4:s.seed=SEED_ELECTRIC_GATLINGPEA;break;case 5:s.seed=SEED_SUNFLOWER;break;case 6:s.seed=SEED_WALLNUT;break;
    case 7:mPlantFoodTimer=0;break;
   }}return true;
  }

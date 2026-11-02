@@ -286,11 +286,15 @@ namespace
 	std::vector<Loaded> gModules;
 	std::vector<PvzpMod::ModInfo> gInfos;
 	std::vector<PvzpMod::CustomPlant> gCustomPlants;
-	std::vector<PvzpMod::Diagnostic> gDiagnostics;
+	// Persistent parse/save diagnostics plus transient effective-rule conflicts.
+	// Rebuild replaces the latter so repeated toggles do not accumulate stale warnings.
+	std::vector<PvzpMod::Diagnostic> gPersistentDiagnostics, gDiagnostics;
 	Map gPlantValues,gZombieValues,gGlobalValues;
 	bool gInitialized=false;
+	uint64_t gSnapshotRevision=0;
 	std::string MakeKey(const char* n,const char* f){return std::string(n?n:"")+"|"+(f?f:"");}
 	void Report(const std::filesystem::path& path,const std::string& message) {
+		gPersistentDiagnostics.push_back({path.string(),message});
 		gDiagnostics.push_back({path.string(),message});
 		PvzpLogLn("[mod] {}: {}",path.string(),message);
 	}
@@ -315,6 +319,28 @@ namespace
 		for(unsigned char c:s)if(c=='/'||c=='\\'||c<0x20||c==0x7f)return false;
 		return true;
 	}
+	bool DisplayName(const std::string& s){
+		if(s.empty()||s.size()>40)return false;
+		for(unsigned char c:s)if(c<0x20||c==0x7f)return false;
+		return true;
+	}
+	bool EventToken(const std::string& token){
+		// Runtime consumers may parse the numeric suffix with stoi. Validate the
+		// complete ASCII grammar and bounds here, before publishing any definition.
+		if(token.empty()||token.size()>40)return false;
+		if(token=="chill"||token=="chill:row"||token=="plant:random"||token=="destroy:plant")return true;
+		if(token=="zombie:NORMAL"||token=="zombie:GARGANTUAR"||token=="zombie:BUNGEE"||
+			token=="zombie:DIGGER"||token=="zombie:BALLOON"||token=="zombie:CONEHEAD"||token=="zombie:BUCKETHEAD")return true;
+		size_t prefix=0;int high=0;
+		if(token.compare(0,4,"sun:")==0){prefix=4;high=9990;}
+		else if(token.compare(0,5,"heal:")==0){prefix=5;high=10000000;}
+		else return false;
+		if(prefix==token.size())return false;
+		for(size_t i=prefix;i<token.size();++i)if(token[i]<'0'||token[i]>'9')return false;
+		int value=0;
+		const auto result=std::from_chars(token.data()+prefix,token.data()+token.size(),value);
+		return result.ec==std::errc{}&&result.ptr==token.data()+token.size()&&value<=high;
+	}
 	bool KnownPlant(const std::string& s){for(const auto& d:gPlantDefs)if(d.mPlantName&&s==d.mPlantName)return true;return false;}
 	bool KnownZombie(const std::string& s){for(const auto& d:gZombieDefs)if(d.mZombieName&&s==d.mZombieName)return true;return false;}
 	bool Section(const JsonValue& v,bool plant,Map& out,std::string& error){
@@ -333,6 +359,9 @@ namespace
 					else if(key=="pickWeight"){low=0;high=100000;}
 					else if(key=="value"){low=0;high=10000;}
 					else if(key=="startingLevel"){low=1;high=50;}
+					else if(key=="speedPercent"){low=25;high=300;}
+					else if(key=="sunDrop"){low=0;high=1000;}
+					else if(key=="tintR"||key=="tintG"||key=="tintB"){low=0;high=255;}
 				}
 				if(low<0){error="unknown field: "+name+"."+key;return false;}
 				if(!Integer(value,low,high,n)){error="invalid integer/range: "+name+"."+key;return false;}
@@ -375,18 +404,28 @@ namespace
 					for(const auto& [k,val]:e.mObject){
 						if(k=="slot"){if(!Integer(val,0,3,c.slot)){error="customPlants.slot";return false;}}
 						else if(k=="name"||k=="tint"||k=="behavior"){if(val.mType!=JsonValue::Type::String||val.mString.empty()||val.mString.size()>40){error="customPlants."+k;return false;}
-							if(k=="name")c.name=val.mString;
-							else if(k=="tint")c.tint=val.mString;
+							if(k=="name"){if(!DisplayName(val.mString)){error="invalid customPlants.name";return false;}c.name=val.mString;}
+							else if(k=="tint"){
+								if(val.mString!="gold"&&val.mString!="blue"&&val.mString!="red"&&val.mString!="green"&&val.mString!="purple"){
+									error="customPlants.tint must be gold, blue, red, green, or purple";return false;
+								}c.tint=val.mString;
+							}
 							else {if(val.mString!="nut"&&val.mString!="brain"){error="customPlants.behavior must be nut or brain";return false;}c.behavior=val.mString;}}
 						else if(k=="cost"){if(!Integer(val,0,9990,c.cost)){error="customPlants.cost";return false;}}
 						else if(k=="health"){if(!Integer(val,1,10000000,c.health)){error="customPlants.health";return false;}}
 						else if(k=="step"){if(!Integer(val,100,10000,c.step)){error="customPlants.step";return false;}}
 						else if(k=="badChance"){if(!Integer(val,0,100,c.badChance)){error="customPlants.badChance";return false;}}
-						else if(k=="events"||k=="badEvents"){
+						else if(k=="interval"){
+							if(!Integer(val,0,60000,c.interval)||(c.interval>0&&c.interval<50)){error="customPlants.interval must be 0 or 50..60000";return false;}
+						}
+						else if(k=="events"||k=="badEvents"||k=="pulseEvents"||k=="foodEvents"){
 							if(val.mType!=JsonValue::Type::Array||val.mArray.size()>16){error="customPlants."+k;return false;}
 							std::vector<std::string> list;
-							for(const auto& item:val.mArray){if(item.mType!=JsonValue::Type::String||item.mString.empty()||item.mString.size()>40){error="customPlants event token";return false;}list.push_back(item.mString);}
-							if(k=="events")c.events=list;else c.badEvents=list;
+							for(const auto& item:val.mArray){if(item.mType!=JsonValue::Type::String||!EventToken(item.mString)){error="invalid customPlants."+k+" token (unknown event, malformed argument, or out of range)";return false;}list.push_back(item.mString);}
+							if(k=="events")c.events=std::move(list);
+							else if(k=="badEvents")c.badEvents=std::move(list);
+							else if(k=="pulseEvents")c.pulseEvents=std::move(list);
+							else c.foodEvents=std::move(list);
 						}else{error="unknown customPlants field: "+k;return false;}
 					}
 					if(c.slot<0||c.name.empty()||!slots.insert(c.slot).second){error="customPlants slot/name/duplicate";return false;}
@@ -405,17 +444,31 @@ namespace
 	}
 	void Rebuild(){
 		gPlantValues.clear();gZombieValues.clear();gGlobalValues.clear();gInfos.clear();gCustomPlants.clear();
+		gDiagnostics=gPersistentDiagnostics;
+		std::map<int,const PvzpMod::ModInfo*> owners;
 		for(const auto& m:gModules){gInfos.push_back(m.info);if(!m.info.enabled)continue;
 			for(const auto& [k,v]:m.plants)gPlantValues[k]=v;
 			for(const auto& [k,v]:m.zombies)gZombieValues[k]=v;
 			for(const auto& [k,v]:m.globals)gGlobalValues[k]=v;
-			for(const auto& c:m.customs){auto it=std::find_if(gCustomPlants.begin(),gCustomPlants.end(),[&](const PvzpMod::CustomPlant& x){return x.slot==c.slot;});if(it!=gCustomPlants.end())*it=c;else gCustomPlants.push_back(c);}
+			for(const auto& c:m.customs){
+				auto it=std::find_if(gCustomPlants.begin(),gCustomPlants.end(),[&](const PvzpMod::CustomPlant& x){return x.slot==c.slot;});
+				if(it!=gCustomPlants.end()){
+					const auto* previous=owners[c.slot];
+					const std::string message="customPlants slot "+std::to_string(c.slot)+" collision: "+
+						m.info.id+" ("+m.info.folder+") overrides "+previous->id+" ("+previous->folder+") by priority/folder order";
+					gDiagnostics.push_back({m.info.folder,message});
+					PvzpLogLn("[mod] {}: {}",m.info.folder,message);
+					*it=c;
+				}else gCustomPlants.push_back(c);
+				owners[c.slot]=&m.info;
+			}
 		}
+		++gSnapshotRevision;
 	}
 }
 namespace PvzpMod {
  bool LoadFromDirectory(const std::filesystem::path& dir){
-	 gModules.clear();gDiagnostics.clear();Rebuild();
+	 gModules.clear();gPersistentDiagnostics.clear();gDiagnostics.clear();Rebuild();
 	 namespace fs=std::filesystem;std::error_code ec;
 	 if(!fs::exists(dir,ec))return !ec;
 	 if(ec||!fs::is_directory(dir,ec)||ec){Report(dir,"mods directory inaccessible");return false;}
@@ -465,6 +518,22 @@ namespace PvzpMod {
 	 for(const auto& mod:gModules)if(mod.info.enabled){add(mod.info.id);add(std::to_string(mod.info.priority));}
 	 auto values=[&](const char* section,const Map& fields){add(section);for(const auto& [k,v]:fields){add(k);add(std::to_string(v));}};
 	 values("plants",gPlantValues);values("zombies",gZombieValues);values("globals",gGlobalValues);
+	 // Hash effective definitions in slot order, not manifest array order. Keep
+	 // fingerprints unchanged for older numeric-only packs with no custom plants.
+	 if(!gCustomPlants.empty()){
+		 add("customPlants");
+		 std::vector<const CustomPlant*> ordered;
+		 for(const auto& c:gCustomPlants)ordered.push_back(&c);
+		 std::sort(ordered.begin(),ordered.end(),[](const CustomPlant* a,const CustomPlant* b){return a->slot<b->slot;});
+		 auto events=[&](const char* field,const std::vector<std::string>& list){add(field);add(std::to_string(list.size()));for(const auto& token:list)add(token);};
+		 for(const auto* c:ordered){
+			 add(std::to_string(c->slot));add(c->name);add(c->tint);add(c->behavior);
+			 add(std::to_string(c->cost));add(std::to_string(c->health));add(std::to_string(c->step));
+			 add(std::to_string(c->badChance));add(std::to_string(c->interval));
+			 events("events",c->events);events("badEvents",c->badEvents);
+			 events("pulseEvents",c->pulseEvents);events("foodEvents",c->foodEvents);
+		 }
+	 }
 	 return h;
  }
  void WarnSavedRules(uint64_t saved){
@@ -472,7 +541,8 @@ namespace PvzpMod {
 		 Report("savegame","saved mod rules differ from currently enabled mods; existing entities retain saved stats; restart/new level for consistent balance");
 	 }
  }
- bool HasMods(){return !gPlantValues.empty()||!gZombieValues.empty()||!gGlobalValues.empty();}
+ uint64_t SnapshotRevision(){return gSnapshotRevision;}
+ bool HasMods(){return !gPlantValues.empty()||!gZombieValues.empty()||!gGlobalValues.empty()||!gCustomPlants.empty();}
  int PlantInt(const char* n,const char* f,int def){auto i=gPlantValues.find(MakeKey(n,f));return i==gPlantValues.end()?def:i->second;}
  int ZombieInt(const char* n,const char* f,int def){auto i=gZombieValues.find(MakeKey(n,f));return i==gZombieValues.end()?def:i->second;}
  int GlobalInt(const char* f,int def){auto i=gGlobalValues.find(f?f:"");return i==gGlobalValues.end()?def:i->second;}
