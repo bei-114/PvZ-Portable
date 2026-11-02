@@ -33,6 +33,8 @@
 #include "widget/Slider.h"
 #include "widget/Checkbox.h"
 #include "../../PvzpLib/PvzpStringFile.h"
+#include "../../PvzpLib/PvzpLocale.h"
+#include "../../PvzpLib/PvzpFontFallback.h"
 
 using namespace Sexy;
 
@@ -41,10 +43,16 @@ NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) :
 {
 	mApp = theApp;
 	mFromGameSelector = theFromGameSelector;
+	PvzpLocaleInitialize();
 	SetButtonTextColor(Color(255, 255, 100));
 	mAlmanacButton = MakeButton(NewOptionsDialog::NewOptionsDialog_Almanac, this, "[VIEW_ALMANAC_BUTTON]");
 	mRestartButton = MakeButton(NewOptionsDialog::NewOptionsDialog_Restart, this, "[RESTART_LEVEL]");
 	mBackToMainButton = MakeButton(NewOptionsDialog::NewOptionsDialog_MainMenu, this, "[MAIN_MENU_BUTTON]");
+	mLanguageButton = MakeButton(NewOptionsDialog::NewOptionsDialog_Language, this, "[OPTIONS_LANGUAGE]");
+	mLanguageButton->SetVisible(mFromGameSelector);
+	// Never switch to unreadable text when the optional licensed font is absent.
+	mLanguageButton->SetDisabled(!PvzpFontFallbackAvailable());
+	mLocaleGeneration = PvzpLocaleGetGeneration();
 
 	mBackToGameButton = MakeNewButton(
 		Dialog::ID_OK,
@@ -129,6 +137,7 @@ void NewOptionsDialog::AddedToManager(Sexy::WidgetManager* theWidgetManager)
 	AddWidget(mHardwareAccelerationCheckbox.get());
 	AddWidget(mFullscreenCheckbox.get());
 	AddWidget(mBackToGameButton.get());
+	AddWidget(mLanguageButton.get());
 }
 
 void NewOptionsDialog::RemovedFromManager(Sexy::WidgetManager* theWidgetManager)
@@ -142,6 +151,7 @@ void NewOptionsDialog::RemovedFromManager(Sexy::WidgetManager* theWidgetManager)
 	RemoveWidget(mBackToMainButton.get());
 	RemoveWidget(mBackToGameButton.get());
 	RemoveWidget(mRestartButton.get());
+	RemoveWidget(mLanguageButton.get());
 }
 
 void NewOptionsDialog::Resize(int theX, int theY, int theWidth, int theHeight)
@@ -155,6 +165,8 @@ void NewOptionsDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	mRestartButton->Resize(mAlmanacButton->mX, mAlmanacButton->mY + 43, 209, 46);
 	mBackToMainButton->Resize(mRestartButton->mX, mRestartButton->mY + 43, 209, 46);
 	mBackToGameButton->Resize(30, 381, mBackToGameButton->mWidth, mBackToGameButton->mHeight);
+	// Main-menu options leave the almanac/restart rows unused.
+	mLanguageButton->Resize(107, 276, 209, 46);
 
 	if (mFromGameSelector)
 	{
@@ -170,8 +182,21 @@ void NewOptionsDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	}
 }
 
+void NewOptionsDialog::RefreshLocalizedLabels()
+{
+	mAlmanacButton->SetLabel("[VIEW_ALMANAC_BUTTON]");
+	mRestartButton->SetLabel("[RESTART_LEVEL]");
+	mBackToMainButton->SetLabel(mFromGameSelector ? "[CREDITS]" : "[MAIN_MENU_BUTTON]");
+	mBackToGameButton->SetLabel(mFromGameSelector ? "[DIALOG_BUTTON_OK]" : "[BACK_TO_GAME]");
+	mLanguageButton->SetLabel("[OPTIONS_LANGUAGE]");
+	mLocaleGeneration = PvzpLocaleGetGeneration();
+	MarkDirty();
+}
+
 void NewOptionsDialog::Draw(Sexy::Graphics* g)
 {
+	if (mLocaleGeneration != PvzpLocaleGetGeneration())
+		RefreshLocalizedLabels();
 	g->DrawImage(IMAGE_OPTIONS_MENUBACK, 0, 0);
 
 	int aMusicOffset = 0;
@@ -382,6 +407,11 @@ void NewOptionsDialog::ButtonDepress(int theId)
 		}
 		break;
 	}
+
+	case NewOptionsDialog::NewOptionsDialog_Language:
+		if (mFromGameSelector && PvzpLocaleSetLanguage(PvzpLocaleIsChinese() ? "en" : "zh-CN"))
+			RefreshLocalizedLabels();
+		break;
 
 	case NewOptionsDialog::NewOptionsDialog_Update:
 		mApp->CheckForUpdates();

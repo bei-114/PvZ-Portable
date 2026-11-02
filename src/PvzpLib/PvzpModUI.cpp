@@ -12,6 +12,7 @@
 #include "../Lawn/System/PlayerInfo.h"
 #include "PvzpStringFile.h"
 #include "PvzpFoley.h"
+#include "PvzpUiStrings.h"
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -27,7 +28,7 @@ struct UIState {
 };
 std::map<Board*,UIState> states;
 void Text(Graphics* g, const std::string& text, int x, int y, Color c=Color(240,245,230)) {
- PvzpDrawString(g,text,x,y,FONT_DWARVENTODCRAFT12,c,DS_ALIGN_CENTER);
+ PvzpDrawString(g,PvzpUiText(text),x,y,FONT_DWARVENTODCRAFT12,c,DS_ALIGN_CENTER);
 }
 void Box(Graphics* g, const Rect& r, const std::string& label, bool selected=false) {
  g->SetColor(selected?Color(44,105,79,245):Color(27,38,48,240)); g->FillRect(r);
@@ -52,7 +53,7 @@ Plant* Pick(Board* b,int col,int row){
 std::string Label(Board* b,int i){
  auto& s=states[b];
  if(s.page==0){
-  switch(i){case 0:return "SUN +1000";case 1:return "SUN LOCK: "+std::string(s.sunLock?"ON":"OFF");case 2:return "FOOD x3";case 3:return "RECHARGE: "+std::string(s.recharge?"ON":"OFF");case 4:return "PLANT <";case 5:return "PLANT >";case 6:return "PLACE ANYWHERE";case 7:return "HEAL PLANTS";case 8:return "PAGE 1/4  >>";}
+  switch(i){case 0:return "SUN +1000";case 1:return PvzpUiText("SUN LOCK: ")+PvzpUiText(s.sunLock?"ON":"OFF");case 2:return "FOOD x3";case 3:return PvzpUiText("RECHARGE: ")+PvzpUiText(s.recharge?"ON":"OFF");case 4:return "PLANT <";case 5:return "PLANT >";case 6:return "PLACE ANYWHERE";case 7:return "HEAL PLANTS";case 8:return "PAGE 1/4  >>";}
  }else if(s.page==1){
   switch(i){case 0:return "ZOMBIE <";case 1:return "ZOMBIE >";case 2:return "SPAWN MIDDLE";case 3:return "SPAWN ALL LANES";case 4:return "CLEAR ZOMBIES";case 5:return "CHILL ALL";case 6:return "NEXT WAVE";case 7:return "CLEAR BULLETS";case 8:return "PAGE 2/4  >>";}
  }else{
@@ -61,10 +62,10 @@ std::string Label(Board* b,int i){
   int modErrors=0;const PvzpMod::Diagnostic* saveNotice=nullptr;const PvzpMod::Diagnostic* firstError=nullptr;
   for(const auto& d:errors){const bool isSave=d.folder.size()>=8&&d.folder.compare(d.folder.size()-8,8,"savegame")==0;
     if(isSave)saveNotice=&d;else{++modErrors;if(!firstError)firstError=&d;}}
-  if(i==0)return "LOADED: "+std::to_string(mods.size())+"  MOD ERRORS: "+std::to_string(modErrors);
+  if(i==0)return PvzpUiText("LOADED: ")+std::to_string(mods.size())+PvzpUiText("  MOD ERRORS: ")+std::to_string(modErrors);
   if(i>=1&&i<=5){size_t n=size_t(i-1);return n<mods.size() ?
-    std::string(mods[n].enabled?"ON  ":"OFF ")+mods[n].id.substr(0,20) : "-";}
-  if(i==6){if(firstError)return "ERR: "+firstError->message.substr(0,22);
+    PvzpUiText(mods[n].enabled?"ON":"OFF")+(mods[n].enabled?"  ":" ")+PvzpUiClip(mods[n].id,20) : "-";}
+  if(i==6){if(firstError)return PvzpUiText("ERR: ")+PvzpUiClip(PvzpUiText(firstError->message),22);
     if(saveNotice)return "OLD SAVE RULES (SAFE)";return "NO LOAD ERRORS";}
   if(i==7)return "EDIT JSON / RESTART GAME";
   if(i==8)return "PAGE 4/4  >>";
@@ -83,7 +84,7 @@ void SeedStep(UIState& s,int dir)
 	// Imitater needs a copied seed type, which the debug placement tool does not supply.
 	for (int i = int(SEED_PEASHOOTER); i < int(SEED_IMITATER); ++i) aSeeds.push_back(i);
 	aSeeds.push_back(SEED_ELECTRIC_GATLINGPEA);
-	for (int i = int(SEED_CUSTOM_0); i <= int(SEED_CUSTOM_3); ++i)
+	for (int i = int(SEED_CUSTOM_FIRST); i <= int(SEED_CUSTOM_LAST); ++i)
 		if (PvzpCustomPlants::IsSlotUsed(static_cast<SeedType>(i))) aSeeds.push_back(i);
 	const int aCount = static_cast<int>(aSeeds.size());
 	int aIndex = 0;
@@ -96,8 +97,8 @@ std::string DebugSeedName(int seed)
 	const auto type = static_cast<SeedType>(seed);
 	if (PvzpCustomPlants::IsCustom(type))
 		for (const auto& plant : PvzpMod::CustomPlants())
-			if (plant.slot == seed - int(SEED_CUSTOM_0)) return plant.name;
-	return GetPlantDefinition(type).mPlantName;
+			if (plant.slot == seed - int(SEED_CUSTOM_0)) return PvzpUiText(plant.name);
+	return PvzpUiResourceName(GetPlantDefinition(type).mPlantName);
 }
 constexpr ZombieType spawnKinds[]={ZOMBIE_NORMAL,ZOMBIE_TRAFFIC_CONE,ZOMBIE_PAIL,ZOMBIE_NEWSPAPER,ZOMBIE_FOOTBALL,ZOMBIE_BALLOON,ZOMBIE_SNORKEL,ZOMBIE_GARGANTUAR};
 void Spawn(Board* b,int row){auto& s=states[b];if(b->mZombies.mSize+1>=b->mZombies.mMaxSize)return; auto z=spawnKinds[s.zombie]; if(z==ZOMBIE_SNORKEL && !b->StageHasPool())return; b->AddZombieInRow(z,row,Zombie::ZOMBIE_WAVE_DEBUG);}
@@ -200,7 +201,7 @@ void Board::DrawDbgPanel(Graphics* graphics){
  if(!mDbgOpen)return;
  g->SetColor(Color(13,23,34,246));g->FillRect(540,86,256,416);
  if(!DebugSeedAvailable(s.seed))s.seed=SEED_ELECTRIC_GATLINGPEA;
- std::string title=s.page==3?"MOD LOAD STATUS":s.page==1?std::string(GetZombieDefinition(spawnKinds[s.zombie]).mZombieName):DebugSeedName(s.seed);
+ std::string title=s.page==3?"MOD LOAD STATUS":s.page==1?PvzpUiResourceName(GetZombieDefinition(spawnKinds[s.zombie]).mZombieName):DebugSeedName(s.seed);
  Text(g,title,668,108,Color(150,235,198));
  for(int i=0;i<9;++i)Box(g,PvzpModUI::ActionRect(this,i),Label(this,i));
 }

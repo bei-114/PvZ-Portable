@@ -94,6 +94,7 @@ android {
 
     sourceSets {
         main {
+            assets.srcDir(layout.buildDirectory.dir('generated/pvzpLocaleAssets'))
             java.srcDirs = [
                 'src/main/java',
                 "${project.rootDir}/../sdl2-src/android-project/app/src/main/java"
@@ -109,6 +110,13 @@ android {
         abortOnError false
     }
 }
+
+// Package only our OFL font, not main.pak or player resources.
+def preparePvzpLocaleAssets = tasks.register('preparePvzpLocaleAssets', Copy) {
+    from("${project.rootDir}/../fonts") { into 'fonts' }
+    into(layout.buildDirectory.dir('generated/pvzpLocaleAssets'))
+}
+tasks.named('preBuild').configure { dependsOn(preparePvzpLocaleAssets) }
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'

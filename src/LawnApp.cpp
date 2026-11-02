@@ -27,6 +27,8 @@
 #include <cstdlib>
 #include "Resources.h"
 #include "PvzpLib/PvzpMod.h"
+#include "PvzpLib/PvzpLocale.h"
+#include "PvzpLib/PvzpFontFallback.h"
 #include "Lawn/LawnCommon.h"
 #include "Lawn/Board.h"
 #include "Lawn/Plant.h"
@@ -223,6 +225,8 @@ LawnApp::~LawnApp()
 	FreeGlobalAllocators();
 	UpdateRegisterInfo();
 
+	PvzpLocaleShutdown();
+	PvzpFontFallbackShutdown();
 	mResourceManager->DeleteResources("");
 }
 
@@ -1674,6 +1678,17 @@ void LawnApp::LoadingThreadProc()
 	LoadProperties("properties/default.xml", false, false);
 	LoadProperties("properties/Layout.xml", false, false);
 	LoadProperties("properties/pvz-portable.xml", false, false);
+	PvzpLocaleInitialize();
+	PvzpLocaleSetChangeCallback([this] {
+		if (mGameSelector) mGameSelector->MarkDirty();
+		if (mBoard) mBoard->MarkDirty();
+	});
+#if defined(__linux__) && !defined(__ANDROID__)
+	// Test-only startup override for screenshots/automation; normal users keep
+	// the persisted setting and change it from the options dialog.
+	if (const char* aTestLanguage = std::getenv("PVZP_TEST_LANGUAGE"))
+		PvzpLocaleSetLanguage(aTestLanguage);
+#endif
 
 	if (mTitleScreen)
 	{

@@ -13,10 +13,10 @@
       "cost": 125,
       "health": 1800,
       "step": 600,
-      "events": ["chill:row"],
+      "events": ["freeze:row", "push:row:70"],
       "interval": 800,
-      "pulseEvents": ["chill:row"],
-      "foodEvents": ["chill", "heal:1800", "sun:100"]
+      "pulseEvents": ["chill:row", "damage:row:100"],
+      "foodEvents": ["chill", "freeze:row", "damage:row:400", "push:row:120", "heal:1800", "sun:100"]
     }
   ]
 }

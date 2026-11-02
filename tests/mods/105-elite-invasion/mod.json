@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.elite-invasion",
+  "name": "Elite Invasion - Very Hard",
+  "priority": 105,
+  "enabled": true,
+  "zombies": {
+    "FOOTBALL_ZOMBIE": {"health": 1500, "helmetHealth": 4200, "speedPercent": 165, "damagePercent": 250, "slowResistancePercent": 70, "sunDrop": 150, "tintR": 255, "tintG": 95, "tintB": 115},
+    "SCREEN_DOOR_ZOMBIE": {"health": 2200, "shieldHealth": 6500, "speedPercent": 130, "damagePercent": 200, "slowResistancePercent": 50, "sunDrop": 175, "tintR": 125, "tintG": 235, "tintB": 255},
+    "GARGANTUAR": {"health": 12000, "speedPercent": 135, "slowResistancePercent": 80, "sunDrop": 300, "tintR": 185, "tintG": 115, "tintB": 255},
+    "BUCKETHEAD_ZOMBIE": {"health": 1800, "helmetHealth": 7000, "speedPercent": 145, "damagePercent": 300, "slowResistancePercent": 60, "sunDrop": 200, "tintR": 125, "tintG": 255, "tintB": 180},
+    "NEWSPAPER_ZOMBIE": {"health": 1600, "shieldHealth": 2400, "speedPercent": 180, "damagePercent": 350, "slowResistancePercent": 90, "sunDrop": 175, "tintR": 255, "tintG": 155, "tintB": 85}
+  }
+}

@@ -14,6 +14,11 @@ namespace PvzpCustomPlants
 {
 bool IsCustom(SeedType theSeedType);
 bool IsBrain(SeedType theSeedType);
+bool IsNut(SeedType theSeedType);
+bool IsPrism(SeedType theSeedType);
+bool IsEmpowered(const Plant* thePlant);
+SeedType BaseSeed(SeedType theSeedType);
+int RefreshForSeed(SeedType theSeedType);
 bool IsSlotUsed(SeedType theSeedType);
 void BrainClick(Board* theBoard, Plant* thePlant);
 void BrainUltimate(Board* theBoard, Plant* thePlant);

@@ -5,6 +5,14 @@
 #include "../Lawn/Board.h"
 #include "../Lawn/Cutscene.h"
 #include "../Lawn/Plant.h"
+#include "../Lawn/Projectile.h"
+#include "../Lawn/Widget/AlmanacDialog.h"
+#include "../Lawn/Widget/NewOptionsDialog.h"
+#include "../Resources.h"
+#include "PvzpPrism.h"
+#include "PvzpLocale.h"
+#include "PvzpFontFallback.h"
+#include "PvzpStringFile.h"
 #include "../Lawn/Zombie.h"
 #include "../Lawn/CursorObject.h"
 #include "../Lawn/SeedPacket.h"
@@ -208,6 +216,7 @@ void ClearFixture(Board* b) {
     for (Plant* p : b->mPlants) if (!p->mDead) p->Die();
     for (Zombie* z : b->mZombies) if (!z->mDead) z->DieNoLoot();
     for (Coin* c : b->mCoins) if (!c->mDead) c->Die();
+    for (Projectile* p : b->mProjectiles) if (!p->mDead) p->Die();
     b->ProcessDeleteQueue();
     PvzpCustomPlants::Reset(b);
 }
@@ -282,8 +291,8 @@ bool AuroraFixture(CustomTest& t, Board* b) {
     const PvzpMod::CustomPlant* config = nullptr;
     for (const auto& c : PvzpMod::CustomPlants()) if (c.slot == 3) config = &c;
     if (!Check(t, config && config->interval == 800 && config->health == 1800 &&
-        config->pulseEvents == std::vector<std::string>{"chill:row"} &&
-        config->foodEvents == std::vector<std::string>{"chill", "heal:1800", "sun:100"},
+        config->pulseEvents == std::vector<std::string>{"chill:row", "damage:row:100"} &&
+        config->foodEvents == std::vector<std::string>{"chill", "freeze:row", "damage:row:400", "push:row:120", "heal:1800", "sun:100"},
         "aurora800_row_pulse_and_food_fixture")) return false;
     Plant* aurora = b->AddPlant(2, 2, SEED_CUSTOM_3);
     Plant* brain = b->AddPlant(4, 3, SEED_CUSTOM_2);
@@ -300,6 +309,7 @@ bool AuroraFixture(CustomTest& t, Board* b) {
     Zombie* bucket = Enemy(b, ZOMBIE_PAIL, 4);
     if (!Check(t, own && other && bucket, "aurora_chill_targets_and_persisted_bounty_fixture")) return false;
     for (Zombie* z : {own, other, bucket}) {
+        z->mBodyHealth = z->mBodyMaxHealth = 10000;
         z->mIceTrapCounter = 100000; // Stationary, no attacks; still chillable.
         z->mChilledCounter = 0;
     }
@@ -351,6 +361,253 @@ bool PortableRoundtrip(CustomTest& t, Board* b) {
     bucket->DropLoot();
     return Check(t, PvzpCustomPlants::Save(b) == custom && Suns(b) == suns && b->mSunMoney == money,
         "portable_load_does_not_replay_partial_damage_or_bounty");
+}
+int Projectiles(Board* b) {
+    int count = 0;
+    for (Projectile* p : b->mProjectiles) if (!p->mDead) ++count;
+    return count;
+}
+std::vector<uint32_t> ProjectileIDs(Board* b) {
+    std::vector<uint32_t> ids;
+    for (Projectile* p : b->mProjectiles) if (!p->mDead) ids.push_back(b->mProjectiles.DataArrayGetID(p));
+    return ids;
+}
+bool NutArtChecks(CustomTest& t, Board* b) {
+    ClearFixture(b);
+    Plant* nut = b->AddPlant(1, 1, SEED_CUSTOM_3);
+    if (!Check(t, nut && PvzpCustomPlants::IsNut(nut->mSeedType) &&
+        PvzpCustomPlants::BaseSeed(nut->mSeedType) == SEED_WALLNUT, "custom_nut_wallnut_art_fixture")) return false;
+    Reanimation* body = b->mApp->ReanimationTryToGet(nut->mBodyReanimID);
+    if (!Check(t, body != nullptr, "custom_nut_actual_reanimation_exists")) return false;
+    nut->mPlantHealth = nut->mPlantMaxHealth;
+    nut->Animate();
+    nut->UpdateReanim();
+    Check(t, body->GetImageOverride("anim_face") == nullptr, "nut_actual_update_reanim_healthy_face");
+    nut->mPlantHealth = nut->mPlantMaxHealth / 2;
+    nut->Animate();
+    nut->UpdateReanim();
+    Check(t, body->GetImageOverride("anim_face") == Sexy::IMAGE_REANIM_WALLNUT_CRACKED1,
+        "nut_actual_update_reanim_middle_cracked_face");
+    nut->mPlantHealth = nut->mPlantMaxHealth / 4;
+    nut->Animate();
+    nut->UpdateReanim();
+    Check(t, body->GetImageOverride("anim_face") == Sexy::IMAGE_REANIM_WALLNUT_CRACKED2,
+        "nut_actual_update_reanim_low_cracked_face");
+    nut->mPlantHealth = nut->mPlantMaxHealth;
+    nut->Animate();
+    nut->UpdateReanim();
+    nut->DoBlink();
+    Check(t, body->GetImageOverride("anim_face") == nullptr &&
+        b->mApp->ReanimationTryToGet(nut->mBlinkReanimID) != nullptr && nut->mBlinkCountdown >= 1000,
+        "nut_repaired_face_and_actual_wallnut_blink_track");
+    nut->EndBlink();
+    return true;
+}
+bool PrismPacketChecks(CustomTest& t, Board* b) {
+    ClearFixture(b);
+    const auto seed = static_cast<SeedType>(int(SEED_CUSTOM_FIRST) + 4);
+    if (!Check(t, PvzpCustomPlants::IsSlotUsed(seed) && PvzpCustomPlants::IsPrism(seed),
+        "prism204_fixture_enabled")) return false;
+    SeedPacket& packet = b->mSeedBank->mSeedPackets[0];
+    packet.SetPacketType(seed, SEED_NONE);
+    // SetPacketType itself must supply initial readiness; do not force flags.
+    b->mSunMoney = 9990;
+    Check(t, packet.mPacketType == seed && packet.mActive && Plant::GetRefreshTime(seed, SEED_NONE) == 3000,
+        "prism204_real_bank_packet_ready_and_refresh3000");
+    BoardClick(b, b->mSeedBank->mX + packet.mX + packet.mOffsetX + SEED_PACKET_WIDTH / 2,
+        b->mSeedBank->mY + packet.mY + SEED_PACKET_HEIGHT / 2);
+    BoardClick(b, b->GridToPixelX(2, 2) + 40, b->GridToPixelY(2, 2) + 40);
+    Plant* flower = nullptr;
+    for (Plant* p : b->mPlants) if (!p->mDead && p->mSeedType == seed) flower = p;
+    if (!Check(t, flower && packet.mRefreshing && !packet.mActive && packet.mRefreshTime == 3000,
+        "prism204_real_packet_plant_starts3000_recharge")) return false;
+    const auto& def = GetPlantDefinition(seed);
+    Check(t, def.mReanimationType == REANIM_MARIGOLD && flower->mLaunchRate == 0 &&
+        def.mSeedCost == 400 && PvzpCustomPlants::CostForSeed(seed, -1) == 400 &&
+        flower->mPlantHealth == 300 && !PvzpCustomPlants::IsEmpowered(flower),
+        "prism_marigold_art_health300_no_passive_launch_initial_unempowered");
+    const int coins = b->mCoins.mSize;
+    for (int i = 0; i < 50; ++i) flower->Update();
+    Check(t, b->mCoins.mSize == coins && flower->mLaunchRate == 0,
+        "prism_actual_plant_updates_do_not_produce_marigold_coins");
+    return true;
+}
+Projectile* PrismShot(Board* b, Plant* flower, ProjectileType type) {
+    return b->AddProjectile(flower->mX + 120, flower->mY + 25, flower->mRenderOrder + 2, flower->mRow, type);
+}
+bool PrismSplitChecks(CustomTest& t, Board* b) {
+    const auto seed = static_cast<SeedType>(int(SEED_CUSTOM_FIRST) + 4);
+    Plant* flower = nullptr;
+    for (Plant* p : b->mPlants) if (!p->mDead && p->mSeedType == seed) flower = p;
+    if (!Check(t, flower != nullptr, "prism_split_existing_real_planted_fixture")) return false;
+    Projectile* pea = PrismShot(b, flower, PROJECTILE_PEA);
+    if (!Check(t, pea != nullptr, "prism_friendly_pea_created")) return false;
+    pea->mPosX = float(flower->mX + 120 - 60); pea->mX = int(pea->mPosX);
+    PvzpPrism::UpdateProjectile(pea);
+    Check(t, Projectiles(b) == 1, "pea_outside_prism_field_does_not_split");
+    for (int i = 0; i < 12 && Projectiles(b) == 1; ++i) pea->Update();
+    if (!Check(t, Projectiles(b) == 3 && !pea->mDead && pea->mProjectileType == PROJECTILE_PEA,
+        "real_pea_projectile_updates_cross_field_create_original_plus_two_fans", Projectiles(b))) return false;
+    Plant* second = b->AddPlant(3, flower->mRow, seed);
+    if (!Check(t, second != nullptr, "second_prism_stacked_field_fixture")) return false;
+    const auto family = ProjectileIDs(b);
+    bool fans = true;
+    for (auto id : family) {
+        Projectile* p = b->mProjectiles.DataArrayTryToGet(id);
+        if (p != pea) fans = fans && p->mMotionType == MOTION_STAR && std::fabs(p->mVelY) > 0.1f;
+        p->mPosX = float(second->mX + 120); p->mX = int(p->mPosX);
+        PvzpPrism::UpdateProjectile(p);
+        PvzpPrism::UpdateProjectile(p);
+    }
+    Check(t, fans && Projectiles(b) == 3, "original_and_fan_clones_split_once_across_two_flowers_no_exponential_stack");
+    for (Projectile* p : b->mProjectiles) if (!p->mDead) p->Die();
+    b->ProcessDeleteQueue();
+    Projectile* cold = PrismShot(b, flower, PROJECTILE_SNOWPEA);
+    if (!Check(t, cold != nullptr, "cold_prism_projectile_fixture")) return false;
+    PvzpPrism::UpdateProjectile(cold);
+    bool coldTypes = Projectiles(b) == 3;
+    for (Projectile* p : b->mProjectiles) if (!p->mDead) coldTypes = coldTypes && p->mProjectileType == PROJECTILE_SNOWPEA;
+    Check(t, coldTypes, "normal_prism_snow_pea_original_and_fans_keep_cold_type");
+    for (Projectile* p : b->mProjectiles) if (!p->mDead) p->Die();
+    b->ProcessDeleteQueue();
+    Projectile* melon = PrismShot(b, flower, PROJECTILE_WINTERMELON);
+    if (!Check(t, melon != nullptr, "lobbed_prism_projectile_fixture")) return false;
+    melon->mMotionType = MOTION_LOBBED; melon->mPosZ = -80; melon->mVelZ = -2.5f;
+    melon->mAccZ = 0.12f; melon->mVelX = 4.0f; melon->mVelY = 0;
+    PvzpPrism::UpdateProjectile(melon);
+    bool physics = Projectiles(b) == 3;
+    for (Projectile* p : b->mProjectiles) if (!p->mDead) physics = physics &&
+        p->mProjectileType == PROJECTILE_WINTERMELON && p->mMotionType == MOTION_LOBBED &&
+        p->mPosZ == -80 && p->mVelZ == -2.5f && p->mAccZ == 0.12f && p->mVelX == 4.0f;
+    Check(t, physics && melon->mVelY == 0, "lobbed_winter_melon_keeps_type_height_vertical_velocity_and_acceleration");
+    for (Projectile* p : b->mProjectiles) if (!p->mDead) p->Die();
+    b->ProcessDeleteQueue();
+    Projectile* hostile = PrismShot(b, flower, PROJECTILE_ZOMBIE_PEA);
+    Projectile* ball = PrismShot(b, flower, PROJECTILE_BASKETBALL);
+    Projectile* backwards = PrismShot(b, flower, PROJECTILE_PEA);
+    if (!Check(t, hostile && ball && backwards, "hostile_prism_exclusion_fixtures")) return false;
+    backwards->mMotionType = MOTION_BACKWARDS;
+    PvzpPrism::UpdateProjectile(hostile); PvzpPrism::UpdateProjectile(ball); PvzpPrism::UpdateProjectile(backwards);
+    Check(t, Projectiles(b) == 3, "enemy_pea_basketball_and_backwards_pea_do_not_split");
+    return true;
+}
+bool PrismEmpowerAndSave(CustomTest& t, Board* b) {
+    ClearFixture(b);
+    const auto seed = static_cast<SeedType>(int(SEED_CUSTOM_FIRST) + 4);
+    Plant* flower = b->AddPlant(2, 2, seed);
+    if (!Check(t, flower != nullptr, "prism_food_live_flower_fixture")) return false;
+    b->mPlantFoodCount = 3;
+    BoardClick(b, b->GetPlantFoodRect());
+    const bool selecting = b->mPlantFoodSelecting;
+    BoardClick(b, flower->mX + 40, flower->mY + 40);
+    Check(t, selecting && b->mPlantFoodCount == 2 && PvzpCustomPlants::IsEmpowered(flower),
+        "real_bean_ui_permanently_empowers_prism_and_consumes_one");
+    BoardClick(b, b->GetPlantFoodRect());
+    BoardClick(b, flower->mX + 40, flower->mY + 40);
+    Check(t, b->mPlantFoodCount == 2 && PvzpCustomPlants::IsEmpowered(flower) &&
+        !PvzpCustomPlants::ApplyFood(b, flower), "already_empowered_prism_rejects_second_real_bean_without_consumption");
+    b->ClearCursor(); b->mPlantFoodSelecting = false;
+    Projectile* shot = PrismShot(b, flower, PROJECTILE_SNOWPEA);
+    Zombie* first = Enemy(b, ZOMBIE_NORMAL, 2);
+    Zombie* next = Enemy(b, ZOMBIE_NORMAL, 2);
+    Zombie* friendly = Enemy(b, ZOMBIE_NORMAL, 2);
+    if (!Check(t, shot && first && next && friendly, "prism_piercing_live_projectile_and_zombies_fixture")) return false;
+    for (Zombie* z : {first, next, friendly}) z->mBodyHealth = z->mBodyMaxHealth = 10000;
+    friendly->StartMindControlled();
+    PvzpPrism::UpdateProjectile(shot);
+    const int hp = first->mBodyHealth;
+    shot->DoImpact(first);
+    Check(t, !shot->mDead && first->mBodyHealth < hp && first->mIceTrapCounter > 0 &&
+        !PvzpPrism::CanHit(shot, first) && !PvzpPrism::CanHit(shot, friendly) && PvzpPrism::CanHit(shot, next),
+        "empowered_actual_impact_damages_freezes_pierces_and_excludes_touched_id_and_friendly");
+    const uint32_t flowerID = b->mPlants.DataArrayGetID(flower), shotID = b->mProjectiles.DataArrayGetID(shot);
+    const uint32_t firstID = b->mZombies.DataArrayGetID(first), nextID = b->mZombies.DataArrayGetID(next);
+    const uint32_t friendlyID = b->mZombies.DataArrayGetID(friendly);
+    const auto state = PvzpCustomPlants::Save(b);
+    std::vector<uint8_t> legacy;
+    auto put = [&](uint32_t value) { for (int i = 0; i < 4; ++i) legacy.push_back(uint8_t(value >> (8 * i))); };
+    put(1); put(1); put(flowerID); put(uint32_t(seed)); put(uint32_t(flower->mPlantHealth)); put(0); put(0); put(0);
+    Check(t, PvzpCustomPlants::Load(b, legacy) && !PvzpCustomPlants::IsEmpowered(flower),
+        "version1_custom_state_loads_with_unempowered_default");
+    if (!Check(t, PvzpCustomPlants::Load(b, state) && PvzpCustomPlants::IsEmpowered(flower) &&
+        !PvzpPrism::CanHit(shot, first), "version2_restores_empowerment_and_projectile_touched_ids_after_v1")) return false;
+    const char* home = std::getenv("HOME");
+    if (!Check(t, home && *home, "prism_portable_disposable_home")) return false;
+    const std::string path = std::string(home) + "/pvzp-prism-regression.dat";
+    if (!Check(t, LawnSaveGame(b, path), "prism_full_portable_save_with_permanent_and_lineage_state")) return false;
+    if (!Check(t, b->LoadGame(path), "prism_full_portable_load_at_end_of_board_update")) return false;
+    flower = b->mPlants.DataArrayTryToGet(flowerID); shot = b->mProjectiles.DataArrayTryToGet(shotID);
+    first = b->mZombies.DataArrayTryToGet(firstID); next = b->mZombies.DataArrayTryToGet(nextID);
+    friendly = b->mZombies.DataArrayTryToGet(friendlyID);
+    if (!Check(t, flower && shot && first && next && friendly && PvzpCustomPlants::IsEmpowered(flower) &&
+        !PvzpPrism::CanHit(shot, first) && !PvzpPrism::CanHit(shot, friendly) && PvzpPrism::CanHit(shot, next),
+        "portable_restores_permanent_prism_and_prevents_repeat_id_and_friendly_hits")) return false;
+    const int count = Projectiles(b);
+    shot->mPosX = float(flower->mX + 120); shot->mX = int(shot->mPosX);
+    PvzpPrism::UpdateProjectile(shot);
+    Check(t, Projectiles(b) == count, "portable_restored_touched_prism_lineage_does_not_split_again");
+    const auto loaded = PvzpCustomPlants::Save(b);
+    Check(t, PvzpCustomPlants::Load(b, loaded) && PvzpCustomPlants::Load(b, loaded) &&
+        PvzpCustomPlants::Save(b) == loaded, "prism_custom_repeated_load_is_idempotent");
+    const int nextHP = next->mBodyHealth;
+    shot->DoImpact(next);
+    Check(t, !shot->mDead && next->mBodyHealth < nextHP && next->mIceTrapCounter > 0 &&
+        !PvzpPrism::CanHit(shot, next), "restored_piercing_shot_hits_next_enemy_once_with_damage_and_frost");
+    return true;
+}
+bool LocaleAndAlmanacChecks(CustomTest& t, Board* b) {
+    if (!Check(t, PvzpFontFallbackAvailable(), "licensed_cjk_fallback_font_available")) return false;
+    const std::string originalLanguage(PvzpLocaleGetLanguage());
+    PvzpLocaleSetLanguage("en");
+    const std::string english(PvzpStringTranslate("[ALMANAC_MOD_PLANTS]"));
+    const auto generation = PvzpLocaleGetGeneration();
+    if (!Check(t, PvzpLocaleSetLanguage("zh-CN") && PvzpLocaleIsChinese() &&
+        PvzpLocaleGetGeneration() > generation, "locale_zh_switch_updates_generation")) return false;
+    std::string saved;
+    b->mApp->RegistryReadString("Language", &saved);
+    const std::string chinese(PvzpStringTranslate("[ALMANAC_MOD_PLANTS]"));
+    Check(t, saved == "zh-CN" && chinese != english, "locale_zh_registry_persistence_and_almanac_label");
+    // Construct in Chinese, then exercise the actual settings control handler.
+    // No claim of complete fan translation: overlays are provisional project text.
+    {
+        NewOptionsDialog options(b->mApp, true);
+        const auto copied = options.mLanguageButton->mLabel;
+        const int control = options.mLanguageButton->mId;
+        options.ButtonDepress(control);
+        b->mApp->RegistryReadString("Language", &saved);
+        Check(t, !PvzpLocaleIsChinese() && saved == "en" && options.mLanguageButton->mLabel != copied &&
+            PvzpLocaleTranslateLiteral(chinese) == english,
+            "actual_options_language_handler_restores_en_and_chinese_created_labels_roundtrip");
+    }
+    PvzpLocaleRegisterLiteral("CTEST literal", "回归测试文字");
+    Check(t, PvzpLocaleSetLanguage("zh-CN") && PvzpLocaleTranslateLiteral("CTEST literal") == "回归测试文字" &&
+        PvzpLocaleSetLanguage("en") && PvzpLocaleTranslateLiteral("回归测试文字") == "CTEST literal",
+        "registered_literal_english_chinese_english_roundtrip");
+    auto* almanac = b->mApp->DoAlmanacDialog(SEED_PEASHOOTER, ZOMBIE_INVALID);
+    if (!Check(t, almanac != nullptr, "real_almanac_dialog_created")) return false;
+    auto click = [&](int x, int y) {
+        const auto pos = almanac->GetAbsPos();
+        auto* manager = b->mApp->mWidgetManager.get();
+        manager->mLastMouseX = x + pos.mX; manager->mLastMouseY = y + pos.mY; manager->mMouseIn = true;
+        almanac->MouseDown(x, y, 1); almanac->MouseUp(x, y, 1);
+    };
+    auto* selector = almanac->mPlantPageButton.get();
+    click(selector->mX + selector->mWidth / 2, selector->mY + selector->mHeight / 2);
+    const auto seed = static_cast<SeedType>(int(SEED_CUSTOM_FIRST) + 4);
+    int x = 0, y = 0; almanac->GetSeedPosition(seed, x, y);
+    click(x + SEED_PACKET_WIDTH / 2, y + SEED_PACKET_HEIGHT / 2);
+    const auto visible = almanac->GetPlantSeeds();
+    Check(t, almanac->mShowModPlants && almanac->mSelectedSeed == seed && almanac->mPlant &&
+        almanac->mPlant->mSeedType == seed && std::find(visible.begin(), visible.end(), seed) != visible.end() &&
+        std::all_of(visible.begin(), visible.end(), [](SeedType s) { return PvzpCustomPlants::IsSlotUsed(s); }),
+        "real_almanac_selector_and_custom_packet_click_select_enabled_prism_properties_preview");
+    const auto selected = almanac->mSelectedSeed;
+    almanac->ShowPlant(SEED_ZOMBIE_NORMAL);
+    Check(t, almanac->mSelectedSeed == selected, "almanac_rejects_zombie_pseudo_seed_as_plant_entry");
+    b->mApp->KillAlmanacDialog();
+    PvzpLocaleSetLanguage(originalLanguage);
+    b->Pause(false);
+    return true;
 }
 bool ExactBank(CustomTest& t, SeedChooserScreen* s, const char* label) {
     bool exact = s->mSeedsInFlight == 0 && s->mSeedsInBank == int(t.expected.size());
@@ -607,6 +864,15 @@ void PvzpRunCustomRegression(Board* b) {
             aurora->mPlantHealth == aurora->mPlantMaxHealth && b->mSunMoney == money + 100,
             "aurora_real_food_all_row_chill_full_heal_100_sun_consumes_one",
             aurora->mPlantHealth, b->mSunMoney - money);
+        t.phase = 5;
+        t.phaseTicks = 0;
+        return;
+    }
+    if (t.phase == 5) {
+        b->mZombieCountDown = b->mZombieCountDownStart = 100000;
+        b->mHugeWaveCountDown = -1;
+        if (!NutArtChecks(t, b) || !PrismPacketChecks(t, b) || !PrismSplitChecks(t, b) ||
+            !PrismEmpowerAndSave(t, b) || !LocaleAndAlmanacChecks(t, b)) { Finish(t, b); return; }
         Finish(t, b);
     }
 #else

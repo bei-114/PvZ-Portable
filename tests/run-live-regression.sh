@@ -13,7 +13,7 @@ RESOURCES=$(realpath -- "$RESOURCES")
 TEST_HOME=$(mktemp -d "${TMPDIR:-/tmp}/pvzp-live.XXXXXX")
 MODS="$TEST_HOME/.local/share/io.github.wszqkzqk/PvZPortable/mods"
 mkdir -p -- "$MODS"
-for pack in 70-box-nuts 80-brain 90-aurora-nut 95-bounty-zombies; do
+for pack in 70-box-nuts 80-brain 90-aurora-nut 95-bounty-zombies 100-prism-megaphone; do
   cp -a -- "$ROOT/tests/mods/$pack" "$MODS/"
 done
 printf 'Disposable test HOME and log directory: %s\n' "$TEST_HOME"

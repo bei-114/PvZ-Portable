@@ -4,7 +4,9 @@
 
 基于 `wszqkzqk/PvZ-Portable`，用户 fork 为 `bei-114/PvZ-Portable`。Android APK 与 Windows 为主要目标。资源版权与代码分离：不要提交或打包 `main.pak`、玩家原版图片/音乐/properties 素材。
 
-最新一轮本地 Linux 构建、**411 项无素材检查、94 项真实棋盘检查全部通过**。这不是所有模式和平台的无 bug 保证。Android 构建须另看 Actions 的对应最终 run，不能把 dispatch/in_progress 写成已出包。
+最新一轮本地 Linux 构建、**529 项无素材检查、13 项语言表解析检查、139 项真实棋盘检查全部通过**。这不是所有模式和平台的无 bug 保证。Android 构建须另看 Actions 的对应最终 run，不能把 dispatch/in_progress 写成已出包。
+
+新增（v6）：设置里中英文切换（含 OFL 中文字体动态栅格化）、模组图鉴属性页、坚果三阶段裂纹回归、极光坚果强化、16 个自定义槽位、晶能扩音花（子弹分裂光环 + 永久能量豆强化）、高强度精英僵尸包。主菜单文字是图片烘焙，程序叠加中文小标签；完整 `LawnStrings` 汉化需要用户提供合法译文文件。
 
 ## 快速验证
 

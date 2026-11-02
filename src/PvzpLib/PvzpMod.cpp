@@ -328,12 +328,14 @@ namespace
 		// Runtime consumers may parse the numeric suffix with stoi. Validate the
 		// complete ASCII grammar and bounds here, before publishing any definition.
 		if(token.empty()||token.size()>40)return false;
-		if(token=="chill"||token=="chill:row"||token=="plant:random"||token=="destroy:plant")return true;
+		if(token=="chill"||token=="chill:row"||token=="freeze:row"||token=="plant:random"||token=="destroy:plant")return true;
 		if(token=="zombie:NORMAL"||token=="zombie:GARGANTUAR"||token=="zombie:BUNGEE"||
 			token=="zombie:DIGGER"||token=="zombie:BALLOON"||token=="zombie:CONEHEAD"||token=="zombie:BUCKETHEAD")return true;
 		size_t prefix=0;int high=0;
 		if(token.compare(0,4,"sun:")==0){prefix=4;high=9990;}
 		else if(token.compare(0,5,"heal:")==0){prefix=5;high=10000000;}
+		else if(token.compare(0,11,"damage:row:")==0){prefix=11;high=10000;}
+		else if(token.compare(0,9,"push:row:")==0){prefix=9;high=160;}
 		else return false;
 		if(prefix==token.size())return false;
 		for(size_t i=prefix;i<token.size();++i)if(token[i]<'0'||token[i]>'9')return false;
@@ -360,6 +362,9 @@ namespace
 					else if(key=="value"){low=0;high=10000;}
 					else if(key=="startingLevel"){low=1;high=50;}
 					else if(key=="speedPercent"){low=25;high=300;}
+					else if(key=="damagePercent"){low=25;high=500;}
+					else if(key=="helmetHealth"||key=="shieldHealth"){low=1;high=10000000;}
+					else if(key=="slowResistancePercent"){low=0;high=100;}
 					else if(key=="sunDrop"){low=0;high=1000;}
 					else if(key=="tintR"||key=="tintG"||key=="tintB"){low=0;high=255;}
 				}
@@ -402,17 +407,22 @@ namespace
 					if(e.mType!=JsonValue::Type::Object){error="customPlants entry must be an object";return false;}
 					PvzpMod::CustomPlant c;
 					for(const auto& [k,val]:e.mObject){
-						if(k=="slot"){if(!Integer(val,0,3,c.slot)){error="customPlants.slot";return false;}}
-						else if(k=="name"||k=="tint"||k=="behavior"){if(val.mType!=JsonValue::Type::String||val.mString.empty()||val.mString.size()>40){error="customPlants."+k;return false;}
+						if(k=="slot"){if(!Integer(val,0,int(NUM_CUSTOM_PLANT_SLOTS)-1,c.slot)){error="customPlants.slot";return false;}}
+						else if(k=="name"||k=="tint"||k=="behavior"||k=="base"){if(val.mType!=JsonValue::Type::String||val.mString.empty()||val.mString.size()>40){error="customPlants."+k;return false;}
 							if(k=="name"){if(!DisplayName(val.mString)){error="invalid customPlants.name";return false;}c.name=val.mString;}
 							else if(k=="tint"){
 								if(val.mString!="gold"&&val.mString!="blue"&&val.mString!="red"&&val.mString!="green"&&val.mString!="purple"){
 									error="customPlants.tint must be gold, blue, red, green, or purple";return false;
 								}c.tint=val.mString;
 							}
-							else {if(val.mString!="nut"&&val.mString!="brain"){error="customPlants.behavior must be nut or brain";return false;}c.behavior=val.mString;}}
+							else if(k=="base") {
+								if(val.mString!="WALL_NUT"&&val.mString!="MARIGOLD"){error="customPlants.base must be WALL_NUT or MARIGOLD";return false;}
+								c.base=val.mString;
+							}
+							else {if(val.mString!="nut"&&val.mString!="brain"&&val.mString!="prism"){error="customPlants.behavior must be nut, brain, or prism";return false;}c.behavior=val.mString;}}
 						else if(k=="cost"){if(!Integer(val,0,9990,c.cost)){error="customPlants.cost";return false;}}
 						else if(k=="health"){if(!Integer(val,1,10000000,c.health)){error="customPlants.health";return false;}}
+						else if(k=="refresh"){if(!Integer(val,1,60000,c.refresh)){error="customPlants.refresh";return false;}}
 						else if(k=="step"){if(!Integer(val,100,10000,c.step)){error="customPlants.step";return false;}}
 						else if(k=="badChance"){if(!Integer(val,0,100,c.badChance)){error="customPlants.badChance";return false;}}
 						else if(k=="interval"){
@@ -428,6 +438,7 @@ namespace
 							else c.foodEvents=std::move(list);
 						}else{error="unknown customPlants field: "+k;return false;}
 					}
+					if(c.behavior=="prism"&&!e.mObject.contains("base"))c.base="MARIGOLD";
 					if(c.slot<0||c.name.empty()||!slots.insert(c.slot).second){error="customPlants slot/name/duplicate";return false;}
 					mod.customs.push_back(std::move(c));
 				}
@@ -528,6 +539,7 @@ namespace PvzpMod {
 		 auto events=[&](const char* field,const std::vector<std::string>& list){add(field);add(std::to_string(list.size()));for(const auto& token:list)add(token);};
 		 for(const auto* c:ordered){
 			 add(std::to_string(c->slot));add(c->name);add(c->tint);add(c->behavior);
+				 add(c->base);add(std::to_string(c->refresh));
 			 add(std::to_string(c->cost));add(std::to_string(c->health));add(std::to_string(c->step));
 			 add(std::to_string(c->badChance));add(std::to_string(c->interval));
 			 events("events",c->events);events("badEvents",c->badEvents);

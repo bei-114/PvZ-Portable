@@ -742,6 +742,10 @@ void PvzpParticleSystem::Update()
 		for (PvzpListNode<ParticleEmitterID>* aNode = mEmitterList.mHead; aNode != nullptr; aNode = aNode->mNext)
 		{
 			PvzpParticleEmitter* aEmitter = mParticleHolder->mEmitters.DataArrayGet(static_cast<unsigned int>(aNode->mValue));
+			// A save import that rebuilds the holder can leave one stale emitter
+			// node for a frame. Skip it instead of dereferencing a dead slot.
+			if (aEmitter == nullptr || aEmitter->mEmitterDef == nullptr)
+				continue;
 			aEmitter->Update();
 			if ((FloatTrackIsSet(aEmitter->mEmitterDef->mCrossFadeDuration) && aEmitter->mParticleList.mSize > 0) || !aEmitter->mDead)
 				aEmitterAlive = true;

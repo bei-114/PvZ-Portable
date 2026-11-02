@@ -160,7 +160,10 @@ SeedChooserScreen::SeedChooserScreen()
 		mStoreButton->mDisabled = true;
 	}
 
-	DBG_ASSERT(mApp->GetSeedsAvailable() < NUM_SEED_TYPES);
+	int aAvailableCapacity = int(NUM_SEEDS_IN_CHOOSER);
+	for (int i = int(SEED_CUSTOM_FIRST); i <= int(SEED_CUSTOM_LAST); ++i)
+		if (PvzpCustomPlants::IsSlotUsed(static_cast<SeedType>(i))) ++aAvailableCapacity;
+	DBG_ASSERT(mApp->GetSeedsAvailable() <= aAvailableCapacity);
 	memset(mChosenSeeds, 0, sizeof(mChosenSeeds));
 	for (int aIndex = 0; aIndex < int(NUM_SEED_SLOTS); ++aIndex)
 	{
@@ -290,11 +293,11 @@ bool SeedChooserScreen::Has7Rows()
 
 void SeedChooserScreen::GetSeedPositionInChooser(int theIndex, int& x, int& y)
 {
-	if (theIndex >= SEED_CUSTOM_0 && theIndex <= SEED_CUSTOM_3)
+	if (PvzpCustomPlants::IsCustom(static_cast<SeedType>(theIndex)))
 	{
-		int aSlot = int(theIndex) - int(SEED_CUSTOM_0);
-		x = aSlot * 53 + 22;
-		y = 128;
+		int aSlot = theIndex - int(SEED_CUSTOM_FIRST);
+		x = (aSlot % 8) * 53 + 22;
+		y = (aSlot / 8) * 70 + 128;
 	}
 	else if (theIndex == SEED_IMITATER)
 	{
@@ -364,13 +367,12 @@ Rect SeedChooserScreen::GetPageButtonRect() const
 }
 SeedType SeedChooserScreen::ModPageSeed(int theIndex)
 {
-	static const SeedType aSeeds[] = { SEED_CUSTOM_0, SEED_CUSTOM_1, SEED_CUSTOM_2, SEED_CUSTOM_3 };
-	return theIndex >= 0 && theIndex < ModPageCount() ? aSeeds[theIndex] : SEED_NONE;
+	return theIndex >= 0 && theIndex < ModPageCount() ? static_cast<SeedType>(int(SEED_CUSTOM_FIRST) + theIndex) : SEED_NONE;
 }
-int SeedChooserScreen::ModPageCount() { return 4; }
+int SeedChooserScreen::ModPageCount() { return int(NUM_CUSTOM_PLANT_SLOTS); }
 void SeedChooserScreen::DrawModPage(Graphics* g)
 {
-	PvzpDrawString(g, "MOD PLANTS", 400, 178, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color(255, 226, 140), DS_ALIGN_CENTER);
+	PvzpDrawString(g, PvzpStringListExists("[ALMANAC_MOD_PLANTS]") ? std::string(PvzpStringTranslate("[ALMANAC_MOD_PLANTS]")) : "Mod plants", 240, 110, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color(255, 226, 140), DS_ALIGN_CENTER);
 	for (int i = 0; i < ModPageCount(); ++i)
 	{
 		SeedType aSeed = ModPageSeed(i);
@@ -972,9 +974,9 @@ void SeedChooserScreen::ShowToolTip()
 			{
 				RemoveToolTip();
 				ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
-				if (aSeedType >= SEED_CUSTOM_0 && aSeedType <= SEED_CUSTOM_3)
+				if (PvzpCustomPlants::IsCustom(aSeedType))
 				{
-					int aSlot = int(aSeedType) - int(SEED_CUSTOM_0);
+					int aSlot = int(aSeedType) - int(SEED_CUSTOM_FIRST);
 					std::string aTitle = "MOD PLANT";
 					for (const auto& cp : PvzpMod::CustomPlants()) if (cp.slot == aSlot) aTitle = cp.name;
 					int aCX = 0, aCY = 0;

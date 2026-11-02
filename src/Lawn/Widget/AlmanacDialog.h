@@ -25,6 +25,7 @@
 #include "LawnDialog.h"
 #include <array>
 #include <memory>
+#include <vector>
 
 constexpr const int NUM_ALMANAC_SEEDS = 49;
 constexpr const int NUM_ALMANAC_ZOMBIES = 26;
@@ -51,7 +52,8 @@ private:
 		ALMANAC_BUTTON_CLOSE = 0,
 		ALMANAC_BUTTON_PLANT = 1,
 		ALMANAC_BUTTON_ZOMBIE = 2,
-		ALMANAC_BUTTON_INDEX = 3
+		ALMANAC_BUTTON_INDEX = 3,
+		ALMANAC_BUTTON_PLANT_PAGE = 4
 	};
 
 public:
@@ -60,6 +62,8 @@ public:
 	std::unique_ptr<GameButton>	mIndexButton;
 	std::unique_ptr<GameButton>	mPlantButton;
 	std::unique_ptr<GameButton>	mZombieButton;
+	std::unique_ptr<GameButton>	mPlantPageButton;
+	bool						mShowModPlants = false;
 	AlmanacPage					mOpenPage;
 	Reanimation*				mReanim[4];
 	SeedType					mSelectedSeed;
@@ -82,6 +86,8 @@ public:
 	void						DrawPlants(Graphics* g);
 	void						DrawZombies(Graphics* g);
 	void						Draw(Graphics* g) override;
+	std::vector<SeedType>		GetPlantSeeds() const;
+	void						UpdatePlantPageButton();
 	void						GetSeedPosition(SeedType theSeedType, int& x, int& y);
 	SeedType					SeedHitTest(int x, int y);
 	bool				ZombieHasSilhouette(ZombieType theZombieType);

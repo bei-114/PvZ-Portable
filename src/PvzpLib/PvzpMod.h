@@ -17,12 +17,13 @@ namespace PvzpMod
 	struct CustomPlant
 	{
 		int slot = -1;
-		std::string name, tint, behavior = "nut";
-		int cost = 0, health = 6000, step = 1000, badChance = 0;
+		std::string name, tint, behavior = "nut", base = "WALL_NUT";
+		int cost = 0, health = 6000, step = 1000, badChance = 0, refresh = 3000;
 		// Zero disables timed pulses; otherwise 50..60000 game ticks.
 		int interval = 0;
 		// Validated event tokens only: sun:0..9990, heal:0..10000000,
-		// chill, chill:row, plant:random, destroy:plant, and supported zombie names.
+		// chill, chill:row, freeze:row, damage:row:0..10000, push:row:0..160,
+		// plant:random, destroy:plant, and supported zombie names.
 		std::vector<std::string> events, badEvents, pulseEvents, foodEvents;
 	};
 	const std::vector<CustomPlant>& CustomPlants();

@@ -38,6 +38,8 @@
 #include "../System/TypingCheck.h"
 #include "../../PvzpLib/PvzpFoley.h"
 #include "../../PvzpLib/PvzpDebug.h"
+#include "../../PvzpLib/PvzpCommon.h"
+#include "../../PvzpLib/PvzpLocale.h"
 #include "graphics/Font.h"
 #include "../../PvzpLib/Reanimator.h"
 #include "../../PvzpLib/PvzpParticle.h"
@@ -47,6 +49,107 @@
 #include <format>
 
 static float gFlowerCenter[3][2] = { { 765.0f, 483.0f }, { 663.0f, 455.0f }, { 701.0f, 439.0f } };
+
+namespace
+{
+constexpr int kZhLabelMargin = 4;
+
+// Screen-space test for a companion label. Button rectangles are the live
+// hit areas tracked from the selector reanimation, so they follow the menu
+// slide without touching the hit areas themselves.
+bool IsZhLabelRectClear(const Rect& theRect, NewLawnButton* const* theButtons, int theButtonCount,
+	const NewLawnButton* theSelf, const Rect& theAchievementsRect)
+{
+	if (theRect.mX < kZhLabelMargin || theRect.mY < kZhLabelMargin ||
+		theRect.mX + theRect.mWidth > BOARD_WIDTH - kZhLabelMargin ||
+		theRect.mY + theRect.mHeight > BOARD_HEIGHT - kZhLabelMargin)
+		return false;
+
+	// Keep every companion label off the achievements stone/monument.
+	if (theRect.Intersects(theAchievementsRect))
+		return false;
+
+	for (int i = 0; i < theButtonCount; i++)
+	{
+		const NewLawnButton* aButton = theButtons[i];
+		if (aButton == nullptr || aButton == theSelf || !aButton->mVisible)
+			continue;
+		if (theRect.Intersects(Rect(aButton->mX, aButton->mY, aButton->mWidth, aButton->mHeight)))
+			return false;
+	}
+
+	return true;
+}
+
+void DrawZhCompanionLabel(Graphics* g, std::string_view theText, const Rect& theRect)
+{
+	_Font* aFont = Sexy::FONT_BRIANNETOD16;
+	int aBaseline = theRect.mY + aFont->GetAscent();
+	// 1px offset shadow keeps the cream text readable on grass and stone.
+	PvzpDrawString(g, theText, theRect.mX + 1, aBaseline + 1, aFont, Color(44, 26, 10), DS_ALIGN_LEFT);
+	PvzpDrawString(g, theText, theRect.mX, aBaseline, aFont, Color(255, 246, 205), DS_ALIGN_LEFT);
+}
+
+void DrawZhSignLabel(Graphics* g, NewLawnButton* theButton, std::string_view theText,
+	NewLawnButton* const* theButtons, int theButtonCount, const Rect& theAchievementsRect,
+	Rect* thePlacedLabels, int& thePlacedCount, bool theAllowInside)
+{
+	if (theButton == nullptr || !theButton->mVisible || theButton->mBtnNoDraw)
+		return;
+
+	_Font* aFont = Sexy::FONT_BRIANNETOD16;
+	int aWidth = aFont->StringWidth(theText);
+	int aAscent = aFont->GetAscent();
+	int aHeight = aFont->GetHeight();
+	if (aWidth <= 0 || aWidth + 2 >= BOARD_WIDTH || aHeight <= 0)
+		return;
+
+	int aCenterX = theButton->mX + theButton->mWidth / 2;
+	aCenterX = std::clamp(aCenterX, aWidth / 2 + kZhLabelMargin, BOARD_WIDTH - aWidth / 2 - kZhLabelMargin);
+
+	// The baked word sits in the middle of each stone slab, so prefer the band
+	// just inside the sign's lower edge. Only if that band is occupied do we put
+	// the label outside, which keeps it visually attached to its sign.
+	const int aInsideBaseline = theButton->mY + theButton->mHeight - aFont->GetDescent() - 6;
+	const int aBaselines[] = {
+		aInsideBaseline,
+		theButton->mY + theButton->mHeight + aAscent + 3,
+		theButton->mY - aFont->GetDescent() - 3
+	};
+
+	for (int aCandidate = 0; aCandidate < 3; aCandidate++)
+	{
+		if (aCandidate == 0 && !theAllowInside)
+			continue;
+
+		Rect aRect(aCenterX - aWidth / 2, aBaselines[aCandidate] - aAscent, aWidth, aHeight);
+		// The inside placement is bounded by its own sign, so overlapping other
+		// (possibly transparent) button rectangles must not reject it.
+		bool aClear = aCandidate == 0
+			? IsZhLabelRectClear(aRect, nullptr, 0, theButton, theAchievementsRect)
+			: IsZhLabelRectClear(aRect, theButtons, theButtonCount, theButton, theAchievementsRect);
+		if (!aClear)
+			continue;
+
+		bool aOverlapsPlaced = false;
+		for (int i = 0; i < thePlacedCount; i++)
+		{
+			if (aRect.Intersects(thePlacedLabels[i]))
+			{
+				aOverlapsPlaced = true;
+				break;
+			}
+		}
+		if (aOverlapsPlaced)
+			continue;
+
+		DrawZhCompanionLabel(g, theText, aRect);
+		if (thePlacedCount < 7)
+			thePlacedLabels[thePlacedCount++] = aRect;
+		return;
+	}
+}
+}
 
 void GameSelectorOverlay::Draw(Graphics* g)
 {
@@ -694,6 +797,56 @@ void GameSelector::DrawOverlay(Graphics* g)
 		PvzpParticleSystem* aTrophyParticle = mApp->ParticleTryToGet(mTrophyParticleID);
 		if (aTrophyParticle)
 			aTrophyParticle->Draw(g);
+	}
+
+	if (PvzpLocaleIsChinese() &&
+		mSelectorState != SelectorAnimState::SELECTOR_OPEN &&
+		mSelectorState != SelectorAnimState::SELECTOR_NEW_USER &&
+		!mStartingGame && !mLoading && mSlideCounter == 0 && mX == 0 && mY == 0 &&
+		mApp->GetDialogCount() == 0)
+	{
+		// The menu lettering is baked into the sign artwork, so Chinese gets a
+		// small companion label. Anchors come from the live button rectangles
+		// (TrackButton refreshes them from the reanimation each Update).
+		constexpr const char* aAdventureLabel = "冒险模式";
+		constexpr const char* aMinigameLabel = "迷你游戏";
+		constexpr const char* aPuzzleLabel = "益智模式";
+		constexpr const char* aSurvivalLabel = "生存模式";
+		constexpr const char* aOptionsLabel = "选项";
+		constexpr const char* aZombatarLabel = "僵尸制造器";
+		constexpr const char* aAchievementsLabel = "成就";
+
+		NewLawnButton* aButtons[] = {
+			mAdventureButton, mMinigameButton, mPuzzleButton, mOptionsButton,
+			mQuitButton, mHelpButton, mStoreButton, mAlmanacButton,
+			mZenGardenButton, mSurvivalButton, mChangeUserButton,
+			mZombatarButton, mAchievementsButton
+		};
+		constexpr int aButtonCount = static_cast<int>(sizeof(aButtons) / sizeof(aButtons[0]));
+		Rect aPlacedLabels[7];
+		int aPlacedCount = 0;
+		// The stone is slightly wider than its clickable image; keep labels 2px away.
+		Rect aAchievementsRect(
+			mAchievementsButton->mX - 2, mAchievementsButton->mY - 2,
+			mAchievementsButton->mWidth + 4, mAchievementsButton->mHeight + 4);
+
+		DrawZhSignLabel(g, mAdventureButton, aAdventureLabel, aButtons, aButtonCount,
+			aAchievementsRect, aPlacedLabels, aPlacedCount, true);
+		if (!mMinigamesLocked)
+			DrawZhSignLabel(g, mMinigameButton, aMinigameLabel, aButtons, aButtonCount,
+				aAchievementsRect, aPlacedLabels, aPlacedCount, true);
+		if (!mPuzzleLocked)
+			DrawZhSignLabel(g, mPuzzleButton, aPuzzleLabel, aButtons, aButtonCount,
+				aAchievementsRect, aPlacedLabels, aPlacedCount, true);
+		if (!mSurvivalLocked)
+			DrawZhSignLabel(g, mSurvivalButton, aSurvivalLabel, aButtons, aButtonCount,
+				aAchievementsRect, aPlacedLabels, aPlacedCount, true);
+		DrawZhSignLabel(g, mOptionsButton, aOptionsLabel, aButtons, aButtonCount,
+			aAchievementsRect, aPlacedLabels, aPlacedCount, true);
+		DrawZhSignLabel(g, mZombatarButton, aZombatarLabel, aButtons, aButtonCount,
+			aAchievementsRect, aPlacedLabels, aPlacedCount, true);
+		DrawZhSignLabel(g, mAchievementsButton, aAchievementsLabel, aButtons, aButtonCount,
+			aAchievementsRect, aPlacedLabels, aPlacedCount, false);
 	}
 
 	mToolTip->Draw(g);

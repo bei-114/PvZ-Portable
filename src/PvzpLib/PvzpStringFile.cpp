@@ -23,6 +23,7 @@
 #include "PvzpDebug.h"
 #include "PvzpCommon.h"
 #include "PvzpStringFile.h"
+#include "PvzpLocale.h"
 #include "paklib/PakInterface.h"
 #include "graphics/Font.h"
 
@@ -95,7 +96,7 @@ bool PvzpStringListReadName(const char*& thePtr, std::string& theName)
 			return false;
 		}
 
-		thePtr += aCount + 2;  // advance past ']'
+		thePtr = aNameEnd + 1;  // also skip leading whitespace / a UTF-8 BOM
 		return true;
 	}
 }
@@ -123,22 +124,14 @@ bool PvzpStringListReadValue(const char*& thePtr, std::string& theValue)
 
 bool PvzpStringListReadItems(const char* theFileText)
 {
-	const char* aPtr = theFileText;
-	std::string aName;
-	std::string aValue;
-
-	for (;;)
-	{
-		if (!PvzpStringListReadName(aPtr, aName))
-			return false;
-		if (aName.size() == 0)  // a successful read with an empty name means reading is done
-			return true;
-		if (!PvzpStringListReadValue(aPtr, aValue))
-			return false;
-
-		std::string aNameUpper = Sexy::StringToUpper(aName);
-		gSexyAppBase->SetString(aNameUpper, aValue);
-	}
+	if (!theFileText)
+		return false;
+	PvzpStringTable aParsed;
+	if (!PvzpStringListParseItems(theFileText, aParsed))
+		return false;
+	for (const auto& [aName, aValue] : aParsed)
+		gSexyAppBase->SetString(aName, aValue);
+	return true;
 }
 
 bool PvzpStringListReadFile(const char* theFileName)
@@ -150,7 +143,12 @@ bool PvzpStringListReadFile(const char* theFileName)
 		return false;
 	}
 
-	return PvzpStringListReadItems(aFileContent.c_str());
+	PvzpStringTable aParsed;
+	if (!PvzpStringListParseItems(aFileContent, aParsed))
+		return false;
+	for (const auto& [aName, aValue] : aParsed)
+		gSexyAppBase->SetString(aName, aValue);
+	return true;
 }
 
 void PvzpStringListLoad(const char* theFileName)
@@ -176,17 +174,17 @@ std::string_view PvzpStringListFind(std::string_view theName)
 
 std::string_view PvzpStringTranslate(std::string_view theString)
 {
-	if (theString.size() >= 3 && theString[0] == '[')
+	if (theString.size() >= 3 && theString.front() == '[' && theString.back() == ']')
 	{
 		std::string_view aName = theString.substr(1, theString.size() - 2);
 		return PvzpStringListFind(aName);
 	}
-	return theString;
+	return PvzpLocaleTranslateLiteral(theString);
 }
 
 std::optional<std::string_view> PvzpStringTryTranslate(std::string_view theString)
 {
-	if (theString.size() >= 3 && theString[0] == '[')
+	if (theString.size() >= 3 && theString.front() == '[' && theString.back() == ']')
 	{
 		std::string_view aName = theString.substr(1, theString.size() - 2);
 		auto anItr = gSexyAppBase->mStringProperties.find(aName);

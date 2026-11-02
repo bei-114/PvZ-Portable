@@ -32,6 +32,8 @@
 #include <mutex>
 #include <format>
 #include "fcaseopen/fcaseopen.h"
+#include "../../PvzpLib/PvzpFontFallback.h"
+#include "../../PvzpLib/PvzpLocale.h"
 
 using namespace Sexy;
 
@@ -1343,6 +1345,7 @@ void ImageFont::GenerateActiveFontLayers()
 
 int ImageFont::StringWidth(std::string_view theString)
 {
+	theString = PvzpLocaleTranslateLiteral(theString);
 	int aWidth = 0;
 	char32_t aPrevChar = 0;
 	size_t aOffset = 0;
@@ -1359,6 +1362,11 @@ int ImageFont::StringWidth(std::string_view theString)
 int ImageFont::CharWidthKern(char32_t theChar, char32_t thePrevChar)
 {
 	Prepare();
+	if (PvzpFontFallbackNeedsGlyph(this, theChar))
+		return PvzpFontFallbackCharWidth(this, theChar);
+	// Native runs start fresh on the other side of a fallback glyph.
+	if (PvzpFontFallbackNeedsGlyph(this, thePrevChar))
+		thePrevChar = 0;
 
 	int aMaxXPos = 0;
 	double aPointSize = mPointSize * mScale;
@@ -1430,6 +1438,19 @@ static RenderCommand* gRenderHead[256];
 
 void ImageFont::DrawStringEx(Graphics* g, int theX, int theY, std::string_view theString, const Color& theColor, RectList* theDrawnAreas, int* theWidth)
 {
+	theString = PvzpLocaleTranslateLiteral(theString);
+	int aFallbackWidth = 0;
+	if (PvzpFontFallbackDrawString(this, g, theX, theY, theString, theColor, &aFallbackWidth))
+	{
+		if (theWidth)
+			*theWidth = aFallbackWidth;
+		if (theDrawnAreas)
+		{
+			theDrawnAreas->clear();
+			theDrawnAreas->emplace_back(theX, theY - GetAscent(), aFallbackWidth, GetHeight());
+		}
+		return;
+	}
 	std::scoped_lock anAutoCrit(gRenderCritSec);
 
 	int aPoolIdx;

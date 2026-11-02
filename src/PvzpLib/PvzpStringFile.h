@@ -22,6 +22,7 @@
 #ifndef __PVZPSTRINGFILE_H__
 #define __PVZPSTRINGFILE_H__
 
+#include "PvzpStringTable.h"
 #include <optional>
 #include "graphics/Graphics.h"
 #include "../ConstEnums.h"

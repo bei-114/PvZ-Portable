@@ -902,6 +902,10 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 	}
 
 	mBodyHealth = PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "health", mBodyHealth);
+	if (mHelmType != HelmType::HELMTYPE_NONE)
+		mHelmHealth = PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "helmetHealth", mHelmHealth);
+	if (mShieldType != ShieldType::SHIELDTYPE_NONE)
+		mShieldHealth = PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "shieldHealth", mShieldHealth);
 	mBodyMaxHealth = mBodyHealth;
 	mHelmMaxHealth = mHelmHealth;
 	mShieldMaxHealth = mShieldHealth;
@@ -7111,23 +7115,24 @@ void Zombie::EatPlant(Plant* thePlant)
 	if (mChilledCounter > 0 && mZombieAge % 2 == 1)
 		return;
 
+	const int aBiteDamage = std::max(1, DAMAGE_PER_EAT * PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "damagePercent", 100) / 100);
 	if (mApp->IsIZombieLevel() && thePlant->mSeedType == SeedType::SEED_SUNFLOWER)
 	{
 		int aStageBeforeChew = thePlant->mPlantHealth / 40;
-		int aStageAfterChew = (thePlant->mPlantHealth - DAMAGE_PER_EAT) / 40;
-		if (aStageAfterChew < aStageBeforeChew || thePlant->mPlantHealth - DAMAGE_PER_EAT <= 0)  // if this chew lowers the plant's health by at least one stage
+		int aStageAfterChew = (thePlant->mPlantHealth - aBiteDamage) / 40;
+		if (aStageAfterChew < aStageBeforeChew || thePlant->mPlantHealth - aBiteDamage <= 0)  // if this chew lowers the plant's health by at least one stage
 		{
 			mBoard->AddCoin(thePlant->mX, thePlant->mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
 		}
 	}
 
-	thePlant->mPlantHealth -= DAMAGE_PER_EAT;
+	thePlant->mPlantHealth -= aBiteDamage;
 	thePlant->mRecentlyEatenCountdown = 50;
 	if (mApp->IsIZombieLevel() && mJustGotShotCounter < -500)
 	{
 		if (thePlant->mSeedType == SeedType::SEED_WALLNUT || thePlant->mSeedType == SeedType::SEED_TALLNUT || thePlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
 		{
-			thePlant->mPlantHealth -= DAMAGE_PER_EAT;
+			thePlant->mPlantHealth -= aBiteDamage;
 		}
 	}
 
@@ -7153,7 +7158,7 @@ void Zombie::EatPlant(Plant* thePlant)
 
 void Zombie::EatZombie(Zombie* theZombie)
 {
-	theZombie->TakeDamage(DAMAGE_PER_EAT, 9U);
+	theZombie->TakeDamage(std::max(1, DAMAGE_PER_EAT * PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "damagePercent", 100) / 100), 9U);
 	StartEating();
 	if (theZombie->mBodyHealth <= 0)
 	{
@@ -7570,6 +7575,7 @@ void Zombie::ApplyChill(bool theIsIceTrap)
 	{
 		aChillTime = 2000;
 	}
+	aChillTime = std::max(1, aChillTime * (100 - PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "slowResistancePercent", 0)) / 100);
 	mChilledCounter = std::max(aChillTime, mChilledCounter);
 
 	UpdateAnimSpeed();
@@ -8070,6 +8076,8 @@ Zombie::~Zombie()
 
 bool Zombie::CanBeChilled()
 {
+	if (PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "slowResistancePercent", 0) >= 100)
+		return false;
 	if (mZombieType == ZombieType::ZOMBIE_ZAMBONI || IsBobsledTeamWithSled())
 		return false;
 
@@ -8446,6 +8454,7 @@ void Zombie::HitIceTrap()
 		mIceTrapCounter = RandRangeInt(400, 600);
 	}
 
+	mIceTrapCounter = std::max(1, mIceTrapCounter * (100 - PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "slowResistancePercent", 0)) / 100);
 	StopZombieSound();
 	if (mZombieType == ZombieType::ZOMBIE_BALLOON)
 	{

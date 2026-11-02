@@ -29,6 +29,7 @@
 #include "../GameConstants.h"
 #include "../PvzpLib/PvzpFoley.h"
 #include "../PvzpLib/PvzpDebug.h"
+#include "../PvzpLib/PvzpPrism.h"
 #include "../PvzpLib/Reanimator.h"
 #include "../PvzpLib/Attachment.h"
 #include "../SexyAppFramework/misc/SexyVector.h"
@@ -294,6 +295,7 @@ constinit const ProjectileDefinition gProjectileDefinition[] = {
 
 Projectile::~Projectile()
 {
+	PvzpPrism::Forget(this);
 	gElectricProjectiles.erase(this);
 	AttachmentDie(mAttachmentID);
 }
@@ -327,6 +329,7 @@ bool Projectile::IsElectric() const
 void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, int theRow, ProjectileType theProjectileType)
 {
 	SetElectric(false);
+	PvzpPrism::Forget(this);
 	int aGridX = mBoard->PixelToGridXKeepOnBoard(theX, theY);
 	mProjectileType = theProjectileType;
 	mPosX = theX;
@@ -499,6 +502,8 @@ Zombie* Projectile::FindCollisionTarget()
 	for (Zombie* aZombie : mBoard->mZombies)
 	{
 		if (aZombie->mDead)
+			continue;
+		if (!PvzpPrism::CanHit(this, aZombie))
 			continue;
 		if (anElectricState && !CanElectricHit(this, aZombie, *anElectricState))
 			continue;
@@ -713,7 +718,7 @@ unsigned int Projectile::GetDamageFlags(Zombie* theZombie)
 		SetBit(aDamageFlags, static_cast<int>(DamageFlags::DAMAGE_FREEZE), true);
 	}
 
-	return aDamageFlags;
+	return aDamageFlags | PvzpPrism::DamageFlagsFor(this);
 }
 
 bool Projectile::IsZombieHitBySplash(Zombie* theZombie)
@@ -968,7 +973,7 @@ void Projectile::UpdateNormalMotion()
 		mPosX += mVelX;
 		mShadowY += mVelY;
 
-		if (IsElectric())
+		if (IsElectric() || PvzpPrism::IsRefracted(this))
 		{
 			// Initialize anchors shadow at GridToPixelY(row)+67, while the
 			// pea head can already be above that row (notably the fan). Use
@@ -1189,6 +1194,7 @@ void Projectile::DoElectricImpact(Zombie* theZombie)
 
 void Projectile::DoImpact(Zombie* theZombie)
 {
+	PvzpPrism::BeforeImpact(this, theZombie);
 	if (IsElectric() && theZombie)
 	{
 		DoElectricImpact(theZombie);
@@ -1306,7 +1312,8 @@ void Projectile::DoImpact(Zombie* theZombie)
 		}
 	}
 
-	Die();
+	if (!PvzpPrism::KeepAfterImpact(this, theZombie))
+		Die();
 }
 
 void Projectile::Update()
@@ -1347,6 +1354,7 @@ void Projectile::Update()
 	}
 	mRotation += mRotationSpeed;
 
+	PvzpPrism::UpdateProjectile(this);
 	UpdateMotion();
 	AttachmentUpdateAndMove(mAttachmentID, mPosX, mPosY + mPosZ);
 }

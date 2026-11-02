@@ -7,6 +7,8 @@
 #include "../LawnApp.h"
 #include "../Resources.h"
 #include "Reanimator.h"
+#include "PvzpPrism.h"
+#include <cmath>
 #include <algorithm>
 #include <charconv>
 #include <map>
@@ -16,10 +18,11 @@
 namespace {
 struct Runtime {
     int lastHealth = 0, damage = 0, pulse = 0, cooldown = 0;
+    bool empowered = false;
 };
 std::map<Board*, std::map<uint32_t, Runtime>> states;
 const PvzpMod::CustomPlant* Config(SeedType type) {
-    if (type < SEED_CUSTOM_0 || type > SEED_CUSTOM_3) return nullptr;
+    if (type < SEED_CUSTOM_FIRST || type > SEED_CUSTOM_LAST) return nullptr;
     for (const auto& config : PvzpMod::CustomPlants())
         if (config.slot == int(type) - int(SEED_CUSTOM_0)) return &config;
     return nullptr;
@@ -66,6 +69,19 @@ void Event(Board* b, Plant* p, const std::string& event) {
     }
     if (event == "chill") { Chill(b); return; }
     if (event == "chill:row") { Chill(b, p->mRow); return; }
+    if(event=="freeze:row" || event.starts_with("damage:row:") || event.starts_with("push:row:")) {
+        for(Zombie* z:b->mZombies) {
+            if(z->IsDeadOrDying() || z->mMindControlled || z->mRow!=p->mRow) continue;
+            if(event=="freeze:row") {
+                z->ApplyChill(true);
+                if(z->CanBeChilled()) { z->HitIceTrap(); z->mIceTrapCounter=std::min(z->mIceTrapCounter,120); }
+            } else if(event.starts_with("damage:row:")) z->TakeDamage(Number(event,11,10000),0);
+            else if(z->mZombieType!=ZOMBIE_BOSS && z->mZombieType!=ZOMBIE_ZAMBONI && z->mZombieType!=ZOMBIE_CATAPULT && z->mZombieType!=ZOMBIE_BOBSLED) {
+                z->mPosX=std::min(950.0f,z->mPosX+Number(event,9,160));z->mX=int(z->mPosX);
+            }
+        }
+        return;
+    }
     if (event == "plant:random") {
         static const SeedType pool[] = {SEED_PEASHOOTER, SEED_SUNFLOWER, SEED_SNOWPEA, SEED_REPEATER,
             SEED_WALLNUT, SEED_CHERRYBOMB, SEED_POTATOMINE, SEED_PUFFSHROOM, SEED_GATLINGPEA, SEED_TWINSUNFLOWER};
@@ -106,20 +122,34 @@ uint32_t Get(const std::vector<uint8_t>& in, size_t& at) {
 }
 
 namespace PvzpCustomPlants {
-bool IsCustom(SeedType t) { return t>=SEED_CUSTOM_0 && t<=SEED_CUSTOM_3; }
+bool IsCustom(SeedType t) { return t>=SEED_CUSTOM_FIRST && t<=SEED_CUSTOM_LAST; }
+bool IsNut(SeedType t) { const auto* c=Config(t); return c && c->behavior=="nut"; }
+bool IsPrism(SeedType t) { const auto* c=Config(t); return c && c->behavior=="prism"; }
+SeedType BaseSeed(SeedType t) { const auto* c=Config(t); return c && c->base=="MARIGOLD" ? SEED_MARIGOLD : SEED_WALLNUT; }
+int RefreshForSeed(SeedType t) { const auto* c=Config(t); return c?c->refresh:3000; }
+bool IsEmpowered(const Plant* p) {
+    if(!p || !p->mBoard) return false;
+    auto b=states.find(p->mBoard); if(b==states.end())return false;
+    auto it=b->second.find(p->mBoard->mPlants.DataArrayGetID(const_cast<Plant*>(p)));
+    return it!=b->second.end() && it->second.empowered;
+}
 bool IsSlotUsed(SeedType t) { return Config(t)!=nullptr; }
 bool IsBrain(SeedType t) { const auto* c=Config(t); return c && c->behavior=="brain"; }
 int HealthForSeed(SeedType t) { const auto* c=Config(t); return c?c->health:300; }
 int CostForSeed(SeedType t,int fallback) { const auto* c=Config(t); return c?c->cost:fallback; }
 Color ColorForSeed(SeedType t) {
     const auto* c=Config(t); if (!c) return Color::White;
+    if(c->behavior=="prism") {
+        float time=(gLawnApp && gLawnApp->mBoard?gLawnApp->mBoard->mMainCounter:0)*0.035f;
+        return Color(int(175+80*std::sin(time)),int(175+80*std::sin(time+2.1f)),int(175+80*std::sin(time+4.2f)));
+    }
     if (c->tint=="blue") return Color(120,170,255);
     if (c->tint=="red") return Color(255,120,110);
     if (c->tint=="green") return Color(130,235,130);
     if (c->tint=="purple") return Color(190,140,255);
     return Color(255,236,170);
 }
-void Reset(Board* b) { states.erase(b); }
+void Reset(Board* b) { states.erase(b); PvzpPrism::Reset(b); }
 void Initialize(Plant* p) {
     if (p && p->mBoard && IsSlotUsed(p->mSeedType)) {
         Runtime s; s.lastHealth=std::max(0,p->mPlantHealth);
@@ -132,7 +162,7 @@ void ApplyVisuals(Plant* p) {
 }
 void ObserveDamage(Board* b, Plant* p) {
     if (!b || !p || p->mBoard!=b || p->mDead) return;
-    const auto* c=Config(p->mSeedType); if (!c || c->behavior=="brain") return;
+    const auto* c=Config(p->mSeedType); if (!c || c->behavior!="nut") return;
     auto& s=State(b,p);
     int hp=std::clamp(p->mPlantHealth,0,p->mPlantMaxHealth);
     s.damage+=std::max(0,s.lastHealth-hp);
@@ -183,6 +213,12 @@ bool ApplyFood(Board* b, Plant* p) {
     if (!Live(b,p)) return false;
     const auto* c=Config(p->mSeedType); if (!c) return false;
     if (c->behavior=="brain") { BrainUltimate(b,p); return true; }
+    if (c->behavior=="prism") {
+        auto& state=State(b,p);
+        if(state.empowered) return false; // permanent; never consume another bean
+        state.empowered=true;
+        return true;
+    }
     if (c->foodEvents.empty()) return false;
     for (const auto& event:c->foodEvents) Event(b,p,event);
     State(b,p).lastHealth=std::max(0,p->mPlantHealth);
@@ -212,7 +248,8 @@ void Update(Board* b) {
     }
 }
 std::vector<uint8_t> Save(Board* b) {
-    std::vector<uint8_t> out; Put(out,1);
+    if(!b)return {};
+    std::vector<uint8_t> out; Put(out,2);
     auto it=states.find(b); uint32_t count=0;
     if (it!=states.end()) for (auto& [id,s]:it->second) { auto* p=b->mPlants.DataArrayTryToGet(id); if(p && !p->mDead && IsSlotUsed(p->mSeedType)) ++count; }
     Put(out,count);
@@ -220,21 +257,32 @@ std::vector<uint8_t> Save(Board* b) {
         auto* p=b->mPlants.DataArrayTryToGet(id); if (!p || p->mDead || !IsSlotUsed(p->mSeedType)) continue;
         Put(out,id); Put(out,uint32_t(p->mSeedType)); Put(out,uint32_t(s.lastHealth));
         Put(out,uint32_t(s.damage)); Put(out,uint32_t(s.pulse)); Put(out,uint32_t(s.cooldown));
+        Put(out,s.empowered?1:0);
     }
-    return out;
+    auto projectiles=PvzpPrism::Save(b); if(projectiles.empty())return {};
+    Put(out,uint32_t(projectiles.size()));out.insert(out.end(),projectiles.begin(),projectiles.end());
+    return out.size()<=1024*1024?out:std::vector<uint8_t>{};
 }
 bool Load(Board* b,const std::vector<uint8_t>& data) {
-    if (!b || data.size()<8) return false;
-    size_t at=0; if(Get(data,at)!=1) return false; uint32_t count=Get(data,at);
-    if(count>uint32_t(b->mPlants.mMaxSize) || data.size()!=8+size_t(count)*24) return false;
-    std::map<uint32_t,Runtime> restored;
+    if (!b || data.size()<8 || data.size()>1024*1024) return false;
+    size_t at=0; uint32_t version=Get(data,at);if(version!=1 && version!=2)return false;
+    uint32_t count=Get(data,at);size_t recordSize=version==1?24:28;
+    if(count>uint32_t(b->mPlants.mMaxSize) || count>(data.size()-8)/recordSize) return false;
+    if(version==1 && data.size()!=8+size_t(count)*recordSize)return false;
+    std::map<uint32_t,Runtime> restored;std::set<uint32_t> ids;
     for(uint32_t i=0;i<count;++i) {
         uint32_t id=Get(data,at), type=Get(data,at), hp=Get(data,at), damage=Get(data,at), pulse=Get(data,at), cooldown=Get(data,at);
+        uint32_t empowered=version==2?Get(data,at):0;
         Plant* p=b->mPlants.DataArrayTryToGet(id);
-        if(!p || p->mDead || uint32_t(p->mSeedType)!=type || !IsCustom(p->mSeedType) || hp>10000000 || damage>10000000 || pulse>60000 || cooldown>50 || restored.count(id)) return false;
-        // A disabled/missing mod leaves a harmless base plant; never dispatch unknown rules.
-        if(IsSlotUsed(p->mSeedType)) restored.emplace(id,Runtime{int(hp),int(damage),int(pulse),int(cooldown)});
+        if(!p || p->mDead || uint32_t(p->mSeedType)!=type || !IsCustom(p->mSeedType) || hp>10000000 || damage>10000000 || pulse>60000 || cooldown>50 || empowered>1 || !ids.insert(id).second) return false;
+        if(IsSlotUsed(p->mSeedType)) restored.emplace(id,Runtime{int(hp),int(damage),int(pulse),int(cooldown),bool(empowered)});
     }
+    if(version==2) {
+        if(data.size()-at<4)return false;uint32_t size=Get(data,at);
+        if(size!=data.size()-at)return false;
+        std::vector<uint8_t> projectiles(data.begin()+at,data.end());
+        if(!PvzpPrism::Load(b,projectiles))return false;
+    } else PvzpPrism::Reset(b);
     states[b]=std::move(restored); return true;
 }
 void DrawBrain(Sexy::Graphics* g, Plant* p) {
@@ -244,6 +292,7 @@ void DrawBrain(Sexy::Graphics* g, Plant* p) {
 }
 void DrawBox(Sexy::Graphics* g,Plant* p) {
     const auto* c=Config(p->mSeedType); if(!c || p->mDead || c->behavior=="brain") return;
+    if(c->behavior=="prism") { PvzpPrism::DrawField(g,p,IsEmpowered(p)); return; }
     if(c->tint!="gold" && c->tint!="blue") return;
     Sexy::Graphics local(*g); local.SetColorizeImages(true); local.SetColor(ColorForSeed(p->mSeedType));
     int offset=int(PlantDrawHeightOffset(p->mBoard,p,p->mSeedType,p->mPlantCol,p->mRow));

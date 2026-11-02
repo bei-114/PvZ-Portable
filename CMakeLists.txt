@@ -200,6 +200,18 @@ target_compile_definitions(pvz-portable PRIVATE
 target_compile_features(pvz-portable PRIVATE cxx_std_20)
 set_target_properties(pvz-portable PROPERTIES CXX_EXTENSIONS OFF)
 
+# Open-licensed project fonts, never player-owned game assets.
+if(NOT ANDROID AND NOT IOS AND NOT EMSCRIPTEN)
+	add_custom_command(TARGET pvz-portable POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"${CMAKE_CURRENT_SOURCE_DIR}/fonts" "$<TARGET_FILE_DIR:pvz-portable>/fonts")
+elseif(IOS)
+	target_sources(pvz-portable PRIVATE fonts/PvzpCJK.ttf fonts/OFL.txt)
+	set_source_files_properties(fonts/PvzpCJK.ttf fonts/OFL.txt PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/fonts")
+elseif(EMSCRIPTEN)
+	target_link_options(pvz-portable PRIVATE "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/fonts@/fonts")
+endif()
+
 if (LOW_MEMORY)
 	target_compile_definitions(pvz-portable PRIVATE LOW_MEMORY)
 endif()

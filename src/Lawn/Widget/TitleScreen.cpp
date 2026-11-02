@@ -27,6 +27,7 @@
 #include "../../LawnApp.h"
 #include "../../Resources.h"
 #include "../../PvzpLib/PvzpCommon.h"
+#include "../../PvzpLib/PvzpLocale.h"
 #include "misc/SexyMatrix.h"
 #include "../../PvzpLib/PvzpStringFile.h"
 #include "../../PvzpLib/EffectSystem.h"
@@ -210,6 +211,28 @@ void TitleScreen::Draw(Graphics* g)
 	for (Reanimation* aReanim : mApp->mEffectSystem->mReanimationHolder->mReanimations)
 	{
 		aReanim->Draw(g);
+	}
+
+	if (PvzpLocaleIsChinese() && mLoadingThreadComplete && mCurBarWidth >= mTotalBarWidth &&
+		mStartButton->mVisible && !mStartButton->mDisabled && mApp->GetDialogCount() == 0)
+	{
+		// "CLICK TO START" is bitmap-font lettering over the wooden load sign;
+		// add a Chinese companion underneath it without moving the click target.
+		constexpr const char* aClickToStartLabel = "点击开始";
+		_Font* aFont = Sexy::FONT_BRIANNETOD16;
+		int aWidth = aFont->StringWidth(aClickToStartLabel);
+		if (aWidth > 0 && aWidth + 8 < mWidth)
+		{
+			int aSignBottom = std::max(aGrassY + 18 + IMAGE_LOADBAR_DIRT->mHeight,
+				mStartButton->mY + mStartButton->mHeight);
+			int aCenterX = aGrassX + IMAGE_LOADBAR_GRASS->mWidth / 2;
+			aCenterX = std::clamp(aCenterX, aWidth / 2 + 4, mWidth - aWidth / 2 - 4);
+			int aBaseline = std::min(aSignBottom + aFont->GetAscent() + 2,
+				mHeight - aFont->GetDescent() - 2);
+			int aX = aCenterX - aWidth / 2;
+			PvzpDrawString(g, aClickToStartLabel, aX + 1, aBaseline + 1, aFont, Color(44, 26, 10), DS_ALIGN_LEFT);
+			PvzpDrawString(g, aClickToStartLabel, aX, aBaseline, aFont, Color(255, 246, 205), DS_ALIGN_LEFT);
+		}
 	}
 }
 

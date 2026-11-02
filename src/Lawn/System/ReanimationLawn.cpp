@@ -24,6 +24,7 @@
 #include "../../LawnApp.h"
 #include "ReanimationLawn.h"
 #include "../../PvzpLib/PvzpDebug.h"
+#include "../../PvzpLib/PvzpCustomPlants.h"
 #include "graphics/Color.h"
 #include "../../PvzpLib/Reanimator.h"
 #include "graphics/MemoryImage.h"
@@ -129,8 +130,8 @@ std::unique_ptr<MemoryImage> ReanimatorCache::MakeBlankMemoryImage(int theWidth,
 
 void ReanimatorCache::GetPlantImageSize(SeedType theSeedType, int& theOffsetX, int& theOffsetY, int& theWidth, int& theHeight)
 {
-	if (theSeedType >= SeedType::SEED_CUSTOM_0 && theSeedType <= SeedType::SEED_CUSTOM_3)
-		theSeedType = SeedType::SEED_WALLNUT;
+	if (PvzpCustomPlants::IsCustom(theSeedType))
+		theSeedType = PvzpCustomPlants::BaseSeed(theSeedType);
 	theOffsetX = -20;
 	theOffsetY = -20;
 	theWidth = 120;
@@ -358,8 +359,8 @@ void ReanimatorCache::ReanimatorCacheDispose()
 
 void ReanimatorCache::DrawCachedPlant(Graphics* g, float thePosX, float thePosY, SeedType theSeedType, DrawVariation theDrawVariation)
 {
-	if (theSeedType >= SeedType::SEED_CUSTOM_0 && theSeedType <= SeedType::SEED_CUSTOM_3)
-		theSeedType = SeedType::SEED_WALLNUT;
+	if (PvzpCustomPlants::IsCustom(theSeedType))
+		theSeedType = PvzpCustomPlants::BaseSeed(theSeedType);
 	PVZP_ASSERT(theSeedType >= 0 && theSeedType < SeedType::NUM_SEED_TYPES);
 
 	MemoryImage* aImage = nullptr;

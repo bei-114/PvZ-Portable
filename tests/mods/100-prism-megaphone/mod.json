@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.prism-megaphone",
+  "name": "Prism Megaphone Flower",
+  "priority": 100,
+  "enabled": true,
+  "customPlants": [{
+    "slot": 4,
+    "name": "Prism Megaphone Flower",
+    "behavior": "prism",
+    "base": "MARIGOLD",
+    "tint": "purple",
+    "cost": 400,
+    "health": 300,
+    "refresh": 3000
+  }]
+}

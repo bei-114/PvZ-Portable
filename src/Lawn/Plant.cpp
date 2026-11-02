@@ -46,6 +46,7 @@
 #include "../PvzpLib/PvzpStringFile.h"
 #include "Widget/AchievementsScreen.h"
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <format>
 
@@ -187,6 +188,8 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 		mBodyReanimID = mApp->ReanimationGetID(aBodyReanim);
 		if (PvzpCustomPlants::IsCustom(theSeedType)) PvzpCustomPlants::ApplyVisuals(this);
 		mBlinkCountdown = 400 + Sexy::Rand(400);
+		if (PvzpCustomPlants::IsNut(mSeedType) && PvzpCustomPlants::BaseSeed(mSeedType) == SEED_WALLNUT)
+			mBlinkCountdown = 1000 + Sexy::Rand(1000);
 	}
 
 	if (PvzpCustomPlants::IsCustom(mSeedType))
@@ -2930,7 +2933,8 @@ Reanimation* Plant::AttachBlinkAnim(Reanimation* theReanimBody)
 	const char* aTrackToAttach = nullptr;
 
 	if (mSeedType == SeedType::SEED_WALLNUT || mSeedType == SeedType::SEED_TALLNUT ||
-		mSeedType == SeedType::SEED_EXPLODE_O_NUT || mSeedType == SeedType::SEED_GIANT_WALLNUT)
+		mSeedType == SeedType::SEED_EXPLODE_O_NUT || mSeedType == SeedType::SEED_GIANT_WALLNUT ||
+		(PvzpCustomPlants::IsNut(mSeedType) && PvzpCustomPlants::BaseSeed(mSeedType) == SEED_WALLNUT))
 	{
 		int aHit = Rand(10);
 		if (aHit < 1 && theReanimBody->TrackExists("anim_blink_twitch"))
@@ -3069,7 +3073,8 @@ void Plant::DoBlink()
 		return;
 
 	if (mSeedType == SeedType::SEED_WALLNUT || mSeedType == SeedType::SEED_TALLNUT ||
-		mSeedType == SeedType::SEED_EXPLODE_O_NUT || mSeedType == SeedType::SEED_GIANT_WALLNUT)
+		mSeedType == SeedType::SEED_EXPLODE_O_NUT || mSeedType == SeedType::SEED_GIANT_WALLNUT ||
+		(PvzpCustomPlants::IsNut(mSeedType) && PvzpCustomPlants::BaseSeed(mSeedType) == SEED_WALLNUT))
 	{
 		mBlinkCountdown = 1000 + Rand(1000);
 	}
@@ -3130,7 +3135,8 @@ void Plant::AnimateNuts()
 	Image* aCracked1;
 	Image* aCracked2;
 	const char* aTrackToOverride;
-	if (mSeedType == SeedType::SEED_WALLNUT)
+	if (mSeedType == SeedType::SEED_WALLNUT ||
+		(PvzpCustomPlants::IsNut(mSeedType) && PvzpCustomPlants::BaseSeed(mSeedType) == SEED_WALLNUT))
 	{
 		aCracked1 = IMAGE_REANIM_WALLNUT_CRACKED1;
 		aCracked2 = IMAGE_REANIM_WALLNUT_CRACKED2;
@@ -3486,7 +3492,8 @@ void Plant::Animate()
 		return;
 	}
 
-	if (mSeedType == SeedType::SEED_WALLNUT || mSeedType == SeedType::SEED_TALLNUT)
+	if (mSeedType == SeedType::SEED_WALLNUT || mSeedType == SeedType::SEED_TALLNUT ||
+		(PvzpCustomPlants::IsNut(mSeedType) && PvzpCustomPlants::BaseSeed(mSeedType) == SEED_WALLNUT))
 	{
 		AnimateNuts();
 	}
@@ -5037,29 +5044,36 @@ void Plant::Die()
 	}
 }
 
-static constinit const PlantDefinition gCustomPlantDefs[4] = {
-	{ .mSeedType = SeedType::SEED_CUSTOM_0, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_0" },
-	{ .mSeedType = SeedType::SEED_CUSTOM_1, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_1" },
-	{ .mSeedType = SeedType::SEED_CUSTOM_2, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_2" },
-	{ .mSeedType = SeedType::SEED_CUSTOM_3, .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_WALLNUT, .mPacketIndex = 2, .mSeedCost = 0, .mRefreshTime = 3000, .mSubClass = PlantSubClass::SUBCLASS_NORMAL, .mLaunchRate = 0, .mPlantName = "CUSTOM_PLANT_3" }
-};
-
 const PlantDefinition& GetPlantDefinition(SeedType theSeedType)
 {
-	if (theSeedType >= SeedType::SEED_CUSTOM_0 && theSeedType <= SeedType::SEED_CUSTOM_3)
+	if (PvzpCustomPlants::IsCustom(theSeedType))
 	{
-		static PlantDefinition aCustom[4];
+		static PlantDefinition aCustom[NUM_CUSTOM_PLANT_SLOTS];
+		// String storage is initialized once: mPlantName pointers remain valid
+		// across registry refreshes, independently of user-facing mod names.
+		static const auto aNames = [] {
+			std::array<std::string, NUM_CUSTOM_PLANT_SLOTS> aResult;
+			for (int i = 0; i < int(NUM_CUSTOM_PLANT_SLOTS); ++i)
+				aResult[i] = std::format("CUSTOM_PLANT_{}", i);
+			return aResult;
+		}();
 		static uint64_t aRevision = ~uint64_t(0);
 		if (aRevision != PvzpMod::SnapshotRevision())
 		{
 			aRevision = PvzpMod::SnapshotRevision();
-			for (int i = 0; i < 4; ++i)
+			for (int i = 0; i < int(NUM_CUSTOM_PLANT_SLOTS); ++i)
 			{
-				aCustom[i] = gCustomPlantDefs[i];
-				aCustom[i].mSeedCost = PvzpCustomPlants::CostForSeed(static_cast<SeedType>(int(SeedType::SEED_CUSTOM_0) + i), aCustom[i].mSeedCost);
+				const auto aSeed = static_cast<SeedType>(int(SEED_CUSTOM_FIRST) + i);
+				aCustom[i] = gPlantDefs[int(PvzpCustomPlants::BaseSeed(aSeed))];
+				aCustom[i].mSeedType = aSeed;
+				aCustom[i].mPlantName = aNames[i].c_str();
+				aCustom[i].mSubClass = PlantSubClass::SUBCLASS_NORMAL;
+				aCustom[i].mLaunchRate = 0; // Art bases must not inherit sun/coin production.
+				aCustom[i].mSeedCost = PvzpCustomPlants::CostForSeed(aSeed, 0);
+				aCustom[i].mRefreshTime = PvzpCustomPlants::RefreshForSeed(aSeed);
 			}
 		}
-		return aCustom[int(theSeedType) - int(SeedType::SEED_CUSTOM_0)];
+		return aCustom[int(theSeedType) - int(SEED_CUSTOM_FIRST)];
 	}
 
 	PVZP_ASSERT(theSeedType >= 0 && theSeedType < static_cast<int>(SeedType::NUM_SEED_TYPES));

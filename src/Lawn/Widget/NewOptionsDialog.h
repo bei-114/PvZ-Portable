@@ -26,6 +26,7 @@
 #include "widget/SliderListener.h"
 #include "widget/CheckboxListener.h"
 #include <memory>
+#include <cstdint>
 
 class LawnApp;
 class LawnStoneButton;
@@ -49,6 +50,7 @@ protected:
 		NewOptionsDialog_SoundVolume,
 		NewOptionsDialog_Fullscreen,
 		NewOptionsDialog_HardwareAcceleration,
+		NewOptionsDialog_Language,
 	};
 
 public:
@@ -60,6 +62,8 @@ public:
 	std::unique_ptr<LawnStoneButton>	mAlmanacButton;
 	std::unique_ptr<LawnStoneButton>	mBackToMainButton;
 	std::unique_ptr<LawnStoneButton>	mRestartButton;
+	std::unique_ptr<LawnStoneButton>	mLanguageButton;
+	std::uint64_t                       mLocaleGeneration = 0;
 	std::unique_ptr<NewLawnButton>		mBackToGameButton;
 	bool								mFromGameSelector;
 
@@ -77,6 +81,7 @@ public:
 	void					ButtonPress(int theId) override;
 	void					ButtonDepress(int theId) override;
 	void					KeyDown(Sexy::KeyCode theKey) override;
+	void                    RefreshLocalizedLabels();
 };
 
 #endif

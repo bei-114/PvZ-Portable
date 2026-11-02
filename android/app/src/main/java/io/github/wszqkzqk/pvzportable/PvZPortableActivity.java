@@ -38,6 +38,9 @@ import android.window.OnBackInvokedDispatcher;
 import org.libsdl.app.SDLActivity;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.IOException;
 
 public class PvZPortableActivity extends SDLActivity {
     private static final String TAG = "PvZPortable";
@@ -56,6 +59,7 @@ public class PvZPortableActivity extends SDLActivity {
             return;
         }
 
+        ensureBundledLocaleAssets(extDir);
         super.onCreate(savedInstanceState);
         hideSystemUI();
         setupImeLayoutAdjustment();
@@ -151,6 +155,32 @@ public class PvZPortableActivity extends SDLActivity {
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE;
         }
         super.setRequestedOrientation(requestedOrientation);
+    }
+
+    // Native pak I/O normally uses the user resource directory. Install our
+    // separately licensed font there without touching any existing user file.
+    private void ensureBundledLocaleAssets(File dir) {
+        if (dir == null) return;
+        File fonts = new File(dir, "fonts");
+        if (!fonts.isDirectory() && !fonts.mkdirs()) return;
+        for (String name : new String[]{"PvzpCJK.ttf", "OFL.txt"}) {
+            File target = new File(fonts, name);
+            if (target.exists()) continue;
+            try {
+                File temp = File.createTempFile("pvzp-font-", ".part", fonts);
+                try (InputStream in = getAssets().open("fonts/" + name);
+                     FileOutputStream out = new FileOutputStream(temp)) {
+                    byte[] buffer = new byte[32768];
+                    int count;
+                    while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+                    out.getFD().sync();
+                }
+                if (!target.exists() && !temp.renameTo(target))
+                    Log.w(TAG, "Could not install bundled locale asset " + name);
+            } catch (IOException error) {
+                Log.w(TAG, "Bundled locale asset unavailable: " + name, error);
+            }
+        }
     }
 
     private static boolean hasGameResources(File dir) {

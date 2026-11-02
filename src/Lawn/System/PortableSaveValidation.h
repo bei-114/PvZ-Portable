@@ -15,7 +15,9 @@ inline constexpr size_t MaxBlobBytes = 1024U * 1024U;
 
 static_assert(int(SEED_ELECTRIC_GATLINGPEA) == 53 && int(NUM_SEED_TYPES) == 54 && int(SEED_IMITATER) == 48 &&
     int(SEED_NONE) == -1 && int(SEED_CUSTOM_0) == 200 && int(SEED_CUSTOM_1) == 201 &&
-    int(SEED_CUSTOM_2) == 202 && int(SEED_CUSTOM_3) == 203, "Portable seed layout changed: add an explicit migration/version");
+    int(SEED_CUSTOM_2) == 202 && int(SEED_CUSTOM_3) == 203 &&
+    int(SEED_CUSTOM_FIRST) == 200 && int(SEED_CUSTOM_LAST) == 215 &&
+    int(NUM_CUSTOM_PLANT_SLOTS) == 16 && int(NUM_SEED_SLOTS) == 216, "Portable seed layout changed: add an explicit migration/version");
 static_assert([] {
     constexpr SeedType pseudo[] = {SEED_BEGHOULED_BUTTON_SHUFFLE, SEED_BEGHOULED_BUTTON_CRATER,
         SEED_SLOT_MACHINE_SUN, SEED_SLOT_MACHINE_DIAMOND, SEED_ZOMBIQUARIUM_SNORKLE, SEED_ZOMBIQUARIUM_TROPHY,
@@ -29,14 +31,14 @@ static_assert([] {
 }(), "Portable pseudo seed ids 55..75 must not shift");
 
 inline bool ValidPlantSeedId(int32_t value) {
-    return (value >= 0 && value <= 53) || (value >= 200 && value <= 203);
+    return (value >= 0 && value <= 53) || (value >= int(SEED_CUSTOM_FIRST) && value <= int(SEED_CUSTOM_LAST));
 }
 inline bool ValidImitaterSeedId(int32_t value) {
     return value == -1 || (value >= 0 && value <= 48);
 }
 inline bool ValidSeedId(int32_t value) {
     return value == -1 || (value >= 0 && value <= 53) ||
-        (value >= 55 && value <= 75) || (value >= 200 && value <= 203);
+        (value >= 55 && value <= 75) || (value >= int(SEED_CUSTOM_FIRST) && value <= int(SEED_CUSTOM_LAST));
 }
 inline bool PseudoSeedId(int32_t value) { return value >= 55 && value <= 75; }
 inline bool ValidPacketCount(int32_t value, uint32_t maximum) {

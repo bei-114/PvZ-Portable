@@ -19,6 +19,7 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
 #include <format>
 #include "../Board.h"
 #include "../Plant.h"
@@ -34,7 +35,41 @@
 #include "../System/PoolEffect.h"
 #include "../System/ReanimationLawn.h"
 #include "../../PvzpLib/PvzpStringFile.h"
+#include "../../PvzpLib/PvzpCustomPlants.h"
+#include "../../PvzpLib/PvzpMod.h"
 #include "widget/WidgetManager.h"
+
+namespace
+{
+std::string AlmanacText(std::string_view theKey, std::string_view theFallback)
+{
+	return std::string(PvzpStringListExists(theKey) ? PvzpStringTranslate(theKey) : theFallback);
+}
+
+std::vector<SeedType> AlmanacCustomSeeds()
+{
+	std::vector<SeedType> aSeeds;
+	for (const auto& aConfig : PvzpMod::CustomPlants())
+	{
+		const auto aSeed = static_cast<SeedType>(int(SEED_CUSTOM_FIRST) + aConfig.slot);
+		if (PvzpCustomPlants::IsCustom(aSeed) && PvzpCustomPlants::IsSlotUsed(aSeed))
+			aSeeds.push_back(aSeed);
+	}
+	std::sort(aSeeds.begin(), aSeeds.end());
+	aSeeds.erase(std::unique(aSeeds.begin(), aSeeds.end()), aSeeds.end());
+	return aSeeds;
+}
+
+const PvzpMod::CustomPlant* AlmanacCustomConfig(SeedType theSeed)
+{
+	if (!PvzpCustomPlants::IsCustom(theSeed) || !PvzpCustomPlants::IsSlotUsed(theSeed))
+		return nullptr;
+	for (const auto& aConfig : PvzpMod::CustomPlants())
+		if (aConfig.slot == int(theSeed) - int(SEED_CUSTOM_FIRST))
+			return &aConfig;
+	return nullptr;
+}
+}
 
 bool gZombieDefeated[NUM_ZOMBIE_TYPES] = { false };
 
@@ -98,6 +133,18 @@ AlmanacDialog::AlmanacDialog(LawnApp* theApp) : LawnDialog(theApp, DIALOG_ALMANA
 	mZombieButton->mDrawStoneButton = true;
 	mZombieButton->mParentWidget = this;
 
+	// Reuse the almanac's small navigation button rather than adding a new UI style.
+	mPlantPageButton = std::make_unique<GameButton>(ALMANAC_BUTTON_PLANT_PAGE);
+	mPlantPageButton->mButtonImage = Sexy::IMAGE_ALMANAC_INDEXBUTTON;
+	mPlantPageButton->mOverImage = Sexy::IMAGE_ALMANAC_INDEXBUTTONHIGHLIGHT;
+	mPlantPageButton->SetFont(Sexy::FONT_BRIANNETOD12);
+	mPlantPageButton->SetLabelColor(aColor);
+	mPlantPageButton->SetLabelHiliteColor(aColor);
+	mPlantPageButton->Resize(230, 567, 164, 26);
+	mPlantPageButton->mParentWidget = this;
+	mPlantPageButton->mTextOffsetX = 8;
+	mPlantPageButton->mTextOffsetY = 1;
+
 	SetPage(ALMANAC_PAGE_INDEX);
 	if (!mApp->mBoard || !mApp->mBoard->mPaused)
 		mApp->mMusic->MakeSureMusicIsPlaying(MUSIC_TUNE_CHOOSE_YOUR_SEEDS);
@@ -139,6 +186,9 @@ void AlmanacDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 void AlmanacDialog::SetupPlant()
 {
 	ClearPlantsAndZombies();
+	// A disabled mod must never leave a stale selectable/preview plant behind.
+	if (PvzpCustomPlants::IsCustom(mSelectedSeed) && !PvzpCustomPlants::IsSlotUsed(mSelectedSeed))
+		mSelectedSeed = SEED_PEASHOOTER;
 
 	float aPosX = ALMANAC_PLANT_POSITION_X;
 	float aPosY = ALMANAC_PLANT_POSITION_Y;
@@ -203,10 +253,25 @@ void AlmanacDialog::SetPage(AlmanacPage thePage)
 		mPlantButton->mBtnNoDraw = true;
 		mZombieButton->mBtnNoDraw = true;
 	}
+	UpdatePlantPageButton();
 }
 
 void AlmanacDialog::ShowPlant(SeedType theSeedType)
 {
+	// Custom slots are not contiguous with the standard almanac seeds. In
+	// particular, zombie pseudo-seeds 55..75 are not plant entries.
+	if (PvzpCustomPlants::IsCustom(theSeedType))
+	{
+		if (!PvzpCustomPlants::IsSlotUsed(theSeedType)) return;
+		mShowModPlants = true;
+	}
+	else
+	{
+		// Preserve direct previews for special built-in plants, while keeping
+		// the standard grid at its original 49 entries.
+		if (int(theSeedType) < 0 || theSeedType > SEED_ELECTRIC_GATLINGPEA) return;
+		mShowModPlants = false;
+	}
 	mSelectedSeed = theSeedType;
 	SetPage(ALMANAC_PAGE_PLANTS);
 }
@@ -219,6 +284,23 @@ void AlmanacDialog::ShowZombie(ZombieType theZombieType)
 
 void AlmanacDialog::Update()
 {
+	if (mOpenPage == ALMANAC_PAGE_PLANTS && mShowModPlants)
+	{
+		auto aSeeds = GetPlantSeeds();
+		if (aSeeds.empty())
+		{
+			mShowModPlants = false;
+			mSelectedSeed = SEED_PEASHOOTER;
+			SetupPlant();
+		}
+		else if (std::find(aSeeds.begin(), aSeeds.end(), mSelectedSeed) == aSeeds.end())
+		{
+			mSelectedSeed = aSeeds.front();
+			SetupPlant();
+		}
+	}
+	UpdatePlantPageButton();
+	mPlantPageButton->Update();
 	mCloseButton->Update();
 	mIndexButton->Update();
 	mPlantButton->Update();
@@ -236,7 +318,7 @@ void AlmanacDialog::Update()
 	int aMouseX = mApp->mWidgetManager->mLastMouseX;
 	int aMouseY = mApp->mWidgetManager->mLastMouseY;
 	if (SeedHitTest(aMouseX, aMouseY) != SeedType::SEED_NONE || ZombieHitTest(aMouseX, aMouseY) != ZombieType::ZOMBIE_INVALID ||
-		mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver() || mPlantButton->IsMouseOver() || mZombieButton->IsMouseOver())
+		mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver() || mPlantButton->IsMouseOver() || mZombieButton->IsMouseOver() || mPlantPageButton->IsMouseOver())
 	{
 		mApp->SetCursor(CURSOR_HAND);
 	}
@@ -276,14 +358,14 @@ void AlmanacDialog::DrawIndex(Graphics* g)
 void AlmanacDialog::DrawPlants(Graphics* g)
 {
 	g->DrawImage(Sexy::IMAGE_ALMANAC_PLANTBACK, 0, 0);
-	PvzpDrawString(g, "[SUBURBAN_ALMANAC_PLANTS]", BOARD_WIDTH / 2, 48, Sexy::FONT_HOUSEOFTERROR20, Color(213, 159, 43), DrawStringJustification::DS_ALIGN_CENTER);
+	PvzpDrawString(g, mShowModPlants ? AlmanacText("[ALMANAC_MOD_PLANTS]", "Mod plants") : "[SUBURBAN_ALMANAC_PLANTS]", BOARD_WIDTH / 2, 48, Sexy::FONT_HOUSEOFTERROR20, Color(213, 159, 43), DrawStringJustification::DS_ALIGN_CENTER);
 
 	SeedType aSeedMouseOn = SeedHitTest(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY);
-	for (SeedType aSeedType = SeedType::SEED_PEASHOOTER; aSeedType < NUM_ALMANAC_SEEDS; aSeedType = (SeedType)(aSeedType + 1))
+	for (SeedType aSeedType : GetPlantSeeds())
 	{
 		int aPosX, aPosY;
 		GetSeedPosition(aSeedType, aPosX, aPosY);
-		if (mApp->HasSeedType(aSeedType))
+		if (PvzpCustomPlants::IsCustom(aSeedType) ? PvzpCustomPlants::IsSlotUsed(aSeedType) : mApp->HasSeedType(aSeedType))
 		{
 			if (aSeedType == SeedType::SEED_IMITATER)
 			{
@@ -333,20 +415,44 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 
 	g->DrawImage(Sexy::IMAGE_ALMANAC_PLANTCARD, 459, 86);
 	const PlantDefinition& aPlantDef = GetPlantDefinition(mSelectedSeed);
-	std::string aName = Plant::GetNameString(mSelectedSeed, SEED_NONE);
-	std::string aDescriptionName = std::format("[{}_DESCRIPTION]", aPlantDef.mPlantName);
+	const auto* aCustom = AlmanacCustomConfig(mSelectedSeed);
+	std::string aName = aCustom ? aCustom->name : Plant::GetNameString(mSelectedSeed, SEED_NONE);
+	std::string aDescriptionName;
+	if (aCustom)
+	{
+		// Only factual properties belong here; mod flavor stories are supplied separately.
+		std::string aBehavior = aCustom->behavior;
+		if (aBehavior == "nut") aBehavior = AlmanacText("[ALMANAC_BEHAVIOR_NUT]", "Nut");
+		else if (aBehavior == "brain") aBehavior = AlmanacText("[ALMANAC_BEHAVIOR_BRAIN]", "Brain");
+		else if (aBehavior == "prism") aBehavior = AlmanacText("[ALMANAC_BEHAVIOR_PRISM]", "Prism");
+		aDescriptionName = std::format("{{KEYWORD}}{}: {{STAT}}{}\n{{KEYWORD}}{}: {{STAT}}{}",
+			AlmanacText("[ALMANAC_HEALTH]", "Health"), PvzpCustomPlants::HealthForSeed(mSelectedSeed),
+			AlmanacText("[ALMANAC_BEHAVIOR]", "Behavior"), aBehavior);
+		if (aCustom->behavior == "nut" && (!aCustom->events.empty() || !aCustom->badEvents.empty()))
+			aDescriptionName += std::format("\n{{KEYWORD}}{}: {{STAT}}{}",
+				AlmanacText("[ALMANAC_DAMAGE_STEP]", "Damage per trigger"), aCustom->step);
+		if (aCustom->interval > 0 && !aCustom->pulseEvents.empty())
+			aDescriptionName += std::format("\n{{KEYWORD}}{}: {{STAT}}{} {}",
+				AlmanacText("[ALMANAC_PULSE_INTERVAL]", "Pulse interval"), aCustom->interval,
+				AlmanacText("[ALMANAC_TICKS]", "ticks"));
+	}
+	else
+		aDescriptionName = std::format("[{}_DESCRIPTION]", aPlantDef.mPlantName);
 	PvzpDrawString(g, aName, 617, 288, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color::White, DS_ALIGN_CENTER);
 	PvzpDrawStringWrapped(g, aDescriptionName, Rect(485, 309, 258, 230), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_LEFT);
 
 	if (mSelectedSeed != SeedType::SEED_IMITATER)
 	{
-		std::string aCostStr = PvzpReplaceString(std::format("{{KEYWORD}}{{COST}}:{{STAT}} {}", aPlantDef.mSeedCost), "{COST}", "[COST]");
+		const int aCost = aCustom ? PvzpCustomPlants::CostForSeed(mSelectedSeed, aPlantDef.mSeedCost) : aPlantDef.mSeedCost;
+		const int aRefreshTime = Plant::GetRefreshTime(mSelectedSeed, SEED_NONE);
+		std::string aCostStr = PvzpReplaceString(std::format("{{KEYWORD}}{{COST}}:{{STAT}} {}", aCost), "{COST}", "[COST]");
 		PvzpDrawStringWrapped(g, aCostStr, Rect(485, 520, 134, 50), Sexy::FONT_BRIANNETOD12, Color::White, DS_ALIGN_LEFT);
 
 		std::string aRechargeStr = PvzpReplaceString(
 			"{KEYWORD}{WAIT_TIME}: {STAT}{WAIT_TIME_LENGTH}",
 			"{WAIT_TIME_LENGTH}",
-			aPlantDef.mRefreshTime == 750 ? "[WAIT_TIME_SHORT]" : aPlantDef.mRefreshTime == 3000 ? "[WAIT_TIME_LONG]" : "[WAIT_TIME_VERY_LONG]"
+			aCustom ? std::format("{} {}", aRefreshTime, AlmanacText("[ALMANAC_TICKS]", "ticks")) :
+			aRefreshTime == 750 ? "[WAIT_TIME_SHORT]" : aRefreshTime == 3000 ? "[WAIT_TIME_LONG]" : "[WAIT_TIME_VERY_LONG]"
 		);
 		aRechargeStr = PvzpReplaceString(aRechargeStr, "{WAIT_TIME}", "[WAIT_TIME]");
 		PvzpDrawStringWrapped(g, aRechargeStr, Rect(600, 520, 139, 50), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_RIGHT);
@@ -517,11 +623,37 @@ void AlmanacDialog::Draw(Graphics* g)
 	mIndexButton->Draw(g);
 	mPlantButton->Draw(g);
 	mZombieButton->Draw(g);
+	mPlantPageButton->Draw(g);
+}
+
+std::vector<SeedType> AlmanacDialog::GetPlantSeeds() const
+{
+	if (mShowModPlants) return AlmanacCustomSeeds();
+	std::vector<SeedType> aSeeds;
+	for (int i = 0; i < NUM_ALMANAC_SEEDS; ++i)
+		aSeeds.push_back(static_cast<SeedType>(i));
+	return aSeeds;
+}
+
+void AlmanacDialog::UpdatePlantPageButton()
+{
+	mPlantPageButton->mBtnNoDraw = mOpenPage != ALMANAC_PAGE_PLANTS || AlmanacCustomSeeds().empty();
+	mPlantPageButton->SetLabel(mShowModPlants ? AlmanacText("[ALMANAC_STANDARD_PLANTS]", "Plants") : AlmanacText("[ALMANAC_MOD_PLANTS]", "Mod plants"));
 }
 
 void AlmanacDialog::GetSeedPosition(SeedType theSeedType, int& x, int& y)
 {
-	if (theSeedType == SeedType::SEED_IMITATER)
+	if (PvzpCustomPlants::IsCustom(theSeedType))
+	{
+		// Positions use the compact visible list, never the raw seed id (200+).
+		const auto aSeeds = AlmanacCustomSeeds();
+		const auto aSeed = std::find(aSeeds.begin(), aSeeds.end(), theSeedType);
+		if (aSeed == aSeeds.end()) { x = -1000; y = -1000; return; }
+		const int aIndex = int(aSeed - aSeeds.begin());
+		x = aIndex % 8 * 52 + 26;
+		y = aIndex / 8 * 78 + 92;
+	}
+	else if (theSeedType == SeedType::SEED_IMITATER)
 		x = 20, y = 23;
 	else
 	{
@@ -534,9 +666,9 @@ SeedType AlmanacDialog::SeedHitTest(int x, int y)
 {
 	if (mMouseVisible && mOpenPage == AlmanacPage::ALMANAC_PAGE_PLANTS)
 	{
-		for (SeedType aSeedType = SeedType::SEED_PEASHOOTER; aSeedType < NUM_ALMANAC_SEEDS; aSeedType = (SeedType)(aSeedType + 1))
+		for (SeedType aSeedType : GetPlantSeeds())
 		{
-			if (mApp->HasSeedType(aSeedType))
+			if (PvzpCustomPlants::IsCustom(aSeedType) ? PvzpCustomPlants::IsSlotUsed(aSeedType) : mApp->HasSeedType(aSeedType))
 			{
 				int aSeedX, aSeedY;
 				GetSeedPosition(aSeedType, aSeedX, aSeedY);
@@ -638,7 +770,15 @@ ZombieType AlmanacDialog::ZombieHitTest(int x, int y)
 
 void AlmanacDialog::MouseUp([[maybe_unused]] int x, [[maybe_unused]] int y, [[maybe_unused]] int theClickCount)
 {
-	if (mPlantButton->IsMouseOver())		SetPage(ALMANAC_PAGE_PLANTS);
+	if (mPlantPageButton->IsMouseOver())
+	{
+		mShowModPlants = !mShowModPlants;
+		const auto aSeeds = GetPlantSeeds();
+		if (aSeeds.empty()) mShowModPlants = false;
+		mSelectedSeed = mShowModPlants ? aSeeds.front() : SEED_PEASHOOTER;
+		SetPage(ALMANAC_PAGE_PLANTS);
+	}
+	else if (mPlantButton->IsMouseOver())		SetPage(ALMANAC_PAGE_PLANTS);
 	else if (mZombieButton->IsMouseOver())	SetPage(ALMANAC_PAGE_ZOMBIES);
 	else if (mCloseButton->IsMouseOver())	mApp->KillAlmanacDialog();
 	else if (mIndexButton->IsMouseOver())	SetPage(ALMANAC_PAGE_INDEX);
@@ -646,7 +786,7 @@ void AlmanacDialog::MouseUp([[maybe_unused]] int x, [[maybe_unused]] int y, [[ma
 
 void AlmanacDialog::MouseDown(int x, int y, [[maybe_unused]] int theClickCount)
 {
-	if (mPlantButton->IsMouseOver() || mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver())
+	if (mPlantButton->IsMouseOver() || mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver() || mPlantPageButton->IsMouseOver())
 		mApp->PlaySample(Sexy::SOUND_TAP);
 	if (mZombieButton->IsMouseOver())
 		mApp->PlaySample(Sexy::SOUND_GRAVEBUTTON);
