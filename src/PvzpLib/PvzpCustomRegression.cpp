@@ -681,22 +681,22 @@ bool CompositeAbilities(CustomTest& t, Board* b) {
     ClearFixture(b);
     const auto* heal = CompositeConfig("pvzp.sunflower_head");
     Zombie* medic = CompositeEnemy(b, "pvzp.sunflower_head");
-    Zombie* near = Enemy(b, ZOMBIE_NORMAL, 3);
-    Zombie* far = Enemy(b, ZOMBIE_NORMAL, 4);
+    Zombie* nearbyAlly = Enemy(b, ZOMBIE_NORMAL, 3);
+    Zombie* distantAlly = Enemy(b, ZOMBIE_NORMAL, 4);
     Zombie* hostileFaction = Enemy(b, ZOMBIE_NORMAL, 2);
-    if (!Check(t, heal && medic && near && far && hostileFaction, "composite_medic_range_faction_fixture")) return false;
-    for (Zombie* z : {near, far, hostileFaction}) { z->mBodyMaxHealth = 2000; z->mBodyHealth = 1000; }
+    if (!Check(t, heal && medic && nearbyAlly && distantAlly && hostileFaction, "composite_medic_range_faction_fixture")) return false;
+    for (Zombie* z : {nearbyAlly, distantAlly, hostileFaction}) { z->mBodyMaxHealth = 2000; z->mBodyHealth = 1000; }
     hostileFaction->StartMindControlled(); medic->mBodyHealth -= 200;
     const int medicHP = medic->mBodyHealth;
     CompositeTicks(b, heal->interval - 1);
-    Check(t, near->mBodyHealth == 1000 && medic->mBodyHealth == medicHP, "medic_does_not_heal_before_interval");
+    Check(t, nearbyAlly->mBodyHealth == 1000 && medic->mBodyHealth == medicHP, "medic_does_not_heal_before_interval");
     CompositeTicks(b, 1);
-    Check(t, near->mBodyHealth == 1100 && medic->mBodyHealth == medicHP + 100 &&
-        far->mBodyHealth == 1000 && hostileFaction->mBodyHealth == 1000,
+    Check(t, nearbyAlly->mBodyHealth == 1100 && medic->mBodyHealth == medicHP + 100 &&
+        distantAlly->mBodyHealth == 1000 && hostileFaction->mBodyHealth == 1000,
         "sunflower_medic_heals100_self_and_near_adjacent_row_allies_but_not_far_row_or_opposite_faction");
-    near->mBodyHealth = near->mBodyMaxHealth - 20;
+    nearbyAlly->mBodyHealth = nearbyAlly->mBodyMaxHealth - 20;
     CompositeTicks(b, heal->interval);
-    Check(t, near->mBodyHealth == near->mBodyMaxHealth, "sunflower_medic_healing_clamps_to_actual_max_health");
+    Check(t, nearbyAlly->mBodyHealth == nearbyAlly->mBodyMaxHealth, "sunflower_medic_healing_clamps_to_actual_max_health");
 
     ClearFixture(b);
     const auto* bite = CompositeConfig("pvzp.chomper_head");

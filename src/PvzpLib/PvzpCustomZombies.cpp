@@ -42,12 +42,12 @@ void Hurt(Plant* p,int damage) {
     PvzpCustomPlants::ObserveDamage(p->mBoard,p);
     if(p->mPlantHealth<=0 && !p->mDead)p->Die();
 }
-Plant* Target(Board* b,Zombie* z,bool near=false) {
+Plant* Target(Board* b,Zombie* z,bool requireMeleeRange=false) {
     Plant* found=nullptr;float closest=10000;
     for(Plant* p:b->mPlants) {
         if(p->mDead || p->NotOnGround() || p->mRow!=z->mRow || !z->CanTargetPlant(p,ATTACKTYPE_CHEW))continue;
         float distance=z->mPosX-p->mX;
-        if(distance< -25 || (near && distance>105))continue;
+        if(distance< -25 || (requireMeleeRange && distance>105))continue;
         if(distance<closest){found=p;closest=distance;}
     }
     return found;
