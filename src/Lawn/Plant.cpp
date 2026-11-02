@@ -33,6 +33,7 @@
 #include "PvzpLib/PvzpMod.h"
 #include "PvzpLib/PvzpPlantFood.h"
 #include "PvzpLib/PvzpCustomPlants.h"
+#include "PvzpLib/PvzpCustomZombies.h"
 #include "CursorObject.h"
 #include "../GameConstants.h"
 #include "System/PlayerInfo.h"
@@ -2717,6 +2718,7 @@ void Plant::UpdateReanimColor()
 		aColorOverride = Color(255, 255, 255);
 	}
 
+	if (PvzpCustomZombies::PlantFrozen(this)) aColorOverride = Color(135, 190, 255);
 	aBodyReanim->mColorOverride = aColorOverride;
 
 	if (mHighlighted)
@@ -2891,6 +2893,11 @@ void Plant::UpdateReanim()
 
 void Plant::Update()
 {
+	if (mApp->mGameScene == SCENE_PLAYING && PvzpCustomZombies::PlantFrozen(this))
+	{
+		UpdateReanim();
+		return;
+	}
 	bool doUpdate = false;
 	if (IsOnBoard() && mApp->mGameScene == GameScenes::SCENE_LEVEL_INTRO && mApp->IsWallnutBowlingLevel())
 		doUpdate = true;

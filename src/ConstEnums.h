@@ -451,7 +451,10 @@ enum GameMode : int32_t
 	GAMEMODE_PUZZLE_I_ZOMBIE_ENDLESS,
 	GAMEMODE_UPSELL,
 	GAMEMODE_INTRO,
-	NUM_GAME_MODES
+	NUM_GAME_MODES,
+	// Keep the original count and all vanilla IDs stable. This dedicated
+	// sandbox is deliberately excluded from challenge-table/profile loops.
+	GAMEMODE_MOD_LEVEL = NUM_GAME_MODES
 };
 enum GameObjectType : int32_t
 {

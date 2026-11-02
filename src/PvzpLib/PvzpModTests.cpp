@@ -188,6 +188,11 @@ void InvalidJsonAndFields(Checks& t, const fs::path& tmp) {
         {"infinity", R"({"schemaVersion":2,"id":"org.bad.infinity","globals":{"startingSun":Infinity}})"},
         {"number-overflow", R"({"schemaVersion":2,"id":"org.bad.exponent","globals":{"startingSun":1e999}})"},
         {"integer-overflow", R"({"schemaVersion":2,"id":"org.bad.integer","globals":{"startingSun":999999999999999999999999999999999999}})"},
+        {"number-underflow", R"({"id":"org.bad.underflow","globals":{"startingSun":1e-10000}})"},
+        {"negative-underflow", R"({"id":"org.bad.negative","globals":{"startingSun":-1e-10000}})"},
+        {"subnormal-integer", R"({"id":"org.bad.subnormal","globals":{"startingSun":1e-310}})"},
+        {"vertical-tab", "\v{\"id\":\"org.bad.vertical\"}"},
+        {"form-feed", "{\f\"id\":\"org.bad.form\"}"},
     };
     for (const auto& [folder, text] : invalid) {
         const fs::path root = tmp / (std::string("invalid-") + folder);
@@ -402,12 +407,12 @@ void NewContentPacks(Checks& t, const fs::path& tmp) {
         if (plant.slot == 0) mysteryFood = plant.foodEvents == std::vector<std::string>{"sun:150", "plant:random", "heal:2000"};
         if (plant.slot == 1) reverseFood = plant.foodEvents == std::vector<std::string>{"sun:100", "plant:random", "chill"};
         if (plant.slot == 3) aurora = plant.name == "Aurora Nut" && plant.behavior == "nut" &&
-            plant.tint == "purple" && plant.cost == 125 && plant.health == 1800 && plant.step == 600 &&
-            plant.interval == 800 && plant.events == std::vector<std::string>{"freeze:row", "push:row:70"} &&
-            plant.pulseEvents == std::vector<std::string>{"chill:row", "damage:row:100"} &&
-            plant.foodEvents == std::vector<std::string>{"chill", "freeze:row", "damage:row:400", "push:row:120", "heal:1800", "sun:100"};
+            plant.tint == "purple" && plant.cost == 125 && plant.health == 8000 && plant.step == 400 &&
+            plant.interval == 400 && plant.events == std::vector<std::string>{"damage:row:600", "heal:1000", "freeze:row", "push:row:120"} &&
+            plant.pulseEvents == std::vector<std::string>{"chill:row", "freeze:row", "damage:row:300", "push:row:30"} &&
+            plant.foodEvents == std::vector<std::string>{"chill", "freeze:row", "damage:row:1800", "push:row:160", "heal:8000", "sun:250"};
     }
-    t.Check(aurora, "Aurora Nut declares chill damage pulses every800 ticks and freeze damage push food events");
+    t.Check(aurora, "Aurora Nut tank8000 step400 pulses every400 ticks with stronger damage push freeze and food");
     t.Check(mysteryFood && reverseFood, "both existing box nuts expose their three configured food events");
     t.Check(PvzpMod::ZombieInt("BUCKETHEAD_ZOMBIE", "health", -1) == 350 &&
         PvzpMod::ZombieInt("BUCKETHEAD_ZOMBIE", "speedPercent", -1) == 125 &&
@@ -458,6 +463,59 @@ void PrismAndElitePacks(Checks& t, const fs::path& tmp) {
     t.Check(PvzpMod::SetEnabled("org.pvzp.example.elite-invasion",false) && PvzpMod::ZombieInt("BUCKETHEAD_ZOMBIE","health",0)==350 && PvzpMod::ZombieInt("BUCKETHEAD_ZOMBIE","helmetHealth",-1)==-1,"disabling hard pack restores bounty stats without residual armor");
     t.Check(PvzpMod::SetEnabled("org.pvzp.example.elite-invasion",true) && PvzpMod::RulesFingerprint()==fingerprint,"elite toggles restore identical full fingerprint");
     t.Check(PvzpMod::SetEnabled("org.pvzp.example.prism-megaphone",false) && PvzpMod::CustomPlants().size()==4 && !PvzpCustomPlants::IsSlotUsed(SEED_CUSTOM_4),"prism slot disappears without affecting the first four plants");
+}
+
+void CompositeCampaignPacks(Checks& t, const fs::path& tmp) {
+    const fs::path root = tmp / "composite-campaign-packs";
+    for (const char* name : {"70-box-nuts", "80-brain", "90-aurora-nut", "95-bounty-zombies", "100-prism-megaphone",
+        "110-composite-zombies", "120-custom-campaign"}) CopyFixture(root, name, name);
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::List().size() == 7 &&
+        PvzpMod::CustomPlants().size() == 5 && PvzpMod::CustomZombies().size() == 8 &&
+        PvzpMod::CustomLevels().size() == 3 && PvzpMod::Diagnostics().empty(),
+        "seven shipped base composite and campaign packs coexist with five plants eight variants three levels");
+    auto unresolved = [] {
+        size_t count = 0;
+        for (const auto& level : PvzpMod::CustomLevels()) for (const auto& wave : level.waves) for (const auto& spawn : wave.spawns) {
+            bool found = false;
+            for (const auto& zombie : PvzpMod::CustomZombies()) found = found || zombie.id == spawn.zombie;
+            for (const auto& zombie : gZombieDefs) found = found || (zombie.mZombieName && spawn.zombie == zombie.mZombieName);
+            if (!found) ++count;
+        }
+        return count;
+    };
+    t.Check(unresolved() == 0, "all shipped campaign spawn references resolve to builtin or effective custom stable ids");
+    const char* ids[] = {"pvzp.seed_packet_head", "pvzp.tombstone_head", "pvzp.snowpea_head", "pvzp.firepea_head",
+        "pvzp.sunflower_head", "pvzp.chomper_head", "pvzp.melon_head", "pvzp.gatling_head"};
+    const char* abilities[] = {"seed_jam", "raise", "shoot_ice", "shoot_fire", "heal", "bite", "shoot_melon", "shoot_pea"};
+    bool variants = PvzpMod::CustomZombies().size() == 8;
+    for (size_t i = 0; variants && i < 8; ++i) variants = PvzpMod::CustomZombies()[i].id == ids[i] &&
+        PvzpMod::CustomZombies()[i].ability == abilities[i] && PvzpMod::CustomZombies()[i].base == "ZOMBIE";
+    t.Check(variants, "eight composite variants retain fixture identities abilities order and stable builtin base enum");
+    const auto& levels = PvzpMod::CustomLevels();
+    t.Check(levels.size() == 3 && levels[0].id == "pvzp.seed_heist" && levels[0].startingSun == 900 && levels[0].waves.size() == 6 &&
+        levels[1].id == "pvzp.grave_orchestra" && levels[1].startingSun == 1400 && levels[1].waves.size() == 7 &&
+        levels[2].id == "pvzp.botanical_siege" && levels[2].startingSun == 2200 && levels[2].waves.size() == 8,
+        "three authored campaign levels publish exact increasing resources wave counts and menu order");
+    const auto original = PvzpMod::RulesFingerprint();
+    t.Check(PvzpMod::SetEnabled("org.pvzp.example.composite-zombies", false) && PvzpMod::CustomZombies().empty() &&
+        PvzpMod::CustomLevels().size() == 3 && unresolved() > 0 && PvzpMod::RulesFingerprint() != original &&
+        PvzpMod::Diagnostics().empty(), "disabling110 removes variants but leaves campaign for runtime unresolved-reference validation");
+    t.Check(PvzpMod::SetEnabled("org.pvzp.example.composite-zombies", true) && unresolved() == 0 &&
+        PvzpMod::RulesFingerprint() == original, "reenabling110 resolves all campaign ids and restores exact effective fingerprint");
+    t.Check(PvzpMod::SetEnabled("org.pvzp.example.custom-campaign", false) && PvzpMod::CustomLevels().empty() &&
+        PvzpMod::CustomZombies().size() == 8 && PvzpMod::CustomPlants().size() == 5,
+        "disabling120 leaves all composite variants and prior plant packs intact");
+    t.Check(PvzpMod::SetEnabled("org.pvzp.example.custom-campaign", true) && PvzpMod::RulesFingerprint() == original,
+        "reenabling120 restores authored campaign fingerprint");
+    Write(root / "override" / "mod.json", R"({"id":"org.test.composite-override","priority":111,"customZombies":[{"id":"pvzp.seed_packet_head","name":"Priority Saboteur","health":999,"ability":"none"}]})");
+    t.Check(PvzpMod::LoadFromDirectory(root) && PvzpMod::CustomZombies().size() == 8 &&
+        PvzpMod::CustomZombies()[0].name == "Priority Saboteur" && PvzpMod::CustomZombies()[0].health == 999 &&
+        PvzpMod::CustomZombies()[0].armor == 0 && unresolved() == 0 && HasDiagnostic("override"),
+        "later priority replaces composite whole entry in stable position while campaign id keeps resolving");
+    t.Check(PvzpMod::SetEnabled("org.test.composite-override", false) && PvzpMod::CustomZombies()[0].health == 850 &&
+        PvzpMod::CustomZombies()[0].armor == 1200 && PvzpMod::CustomZombies()[0].ability == "seed_jam" &&
+        PvzpMod::Diagnostics().empty() && PvzpMod::RulesFingerprint() == original,
+        "disabling priority override restores full shipped saboteur and removes collision diagnostic");
 }
 
 void CustomPlantSecurity(Checks& t, const fs::path& tmp) {
@@ -769,6 +827,239 @@ void ZombieVariantFields(Checks& t, const fs::path& tmp) {
     }
 }
 
+void CustomZombieAndLevelRegistries(Checks& t, const fs::path& tmp) {
+    const fs::path root = tmp / "custom-registries";
+    const fs::path manifest = root / "registry" / "mod.json";
+    auto write = [&](const std::string& fields) {
+        Write(manifest, std::string(R"({"id":"org.test.registry",)") + fields + "}");
+        return PvzpMod::LoadFromDirectory(root);
+    };
+    const std::string zombie = R"({"id":"test.synthetic-v1","name":"合成僵尸"})";
+    const std::string level = R"({"id":"test.level-1","name":"合成关卡","waves":[{"spawns":[{"zombie":"test.synthetic-v1"}]}]})";
+    t.Check(write("\"customZombies\":[" + zombie + "]") && PvzpMod::HasMods() &&
+        PvzpMod::Diagnostics().empty() && PvzpMod::CustomZombies().size() == 1 &&
+        PvzpMod::CustomLevels().empty(), "custom-zombie-only pack activates independent stable-id registry");
+    const auto c = PvzpMod::CustomZombies().at(0);
+    t.Check(c.id == "test.synthetic-v1" && c.name == "合成僵尸" && c.base == "ZOMBIE" &&
+        c.head == "seed_packet" && c.ability == "none" && c.health == 600 && c.armor == 0 &&
+        c.interval == 600 && c.magnitude == 30 && c.speedPercent == 100 && c.damagePercent == 100 &&
+        c.slowResistancePercent == 0 && c.sunDrop == 0 && c.tintR == 255 && c.tintG == 255 && c.tintB == 255,
+        "custom zombie defaults and UTF-8 display name are published exactly");
+    t.Check(write("\"customLevels\":[" + level + "]") && PvzpMod::HasMods() &&
+        PvzpMod::Diagnostics().empty() && PvzpMod::CustomLevels().size() == 1 &&
+        PvzpMod::CustomZombies().empty(), "level-only pack accepts syntactic unresolved forward reference");
+    const auto l = PvzpMod::CustomLevels().at(0);
+    t.Check(l.startingSun == 300 && l.description.empty() && l.waves.size() == 1 &&
+        l.waves[0].delay == 800 && l.waves[0].spawns[0].zombie == "test.synthetic-v1" &&
+        l.waves[0].spawns[0].row == -1 && l.waves[0].spawns[0].count == 1,
+        "custom level and spawn defaults preserve stable reference and random row sentinel");
+    t.Check(write(R"("customZombies":[{"id":"bounds","name":"Bounds","health":1,"armor":0,"interval":50,"magnitude":1,"speedPercent":25,"damagePercent":25,"slowResistancePercent":0,"sunDrop":0,"tintR":0,"tintG":0,"tintB":0}])") &&
+        PvzpMod::Diagnostics().empty() && PvzpMod::CustomZombies().at(0).health == 1,
+        "custom zombie lower numeric bounds accepted");
+    t.Check(write(R"("customZombies":[{"id":"bounds","name":"Bounds","health":10000000,"armor":10000000,"interval":60000,"magnitude":1000,"speedPercent":300,"damagePercent":500,"slowResistancePercent":100,"sunDrop":1000,"tintR":255,"tintG":255,"tintB":255}])") &&
+        PvzpMod::Diagnostics().empty() && PvzpMod::CustomZombies().at(0).armor == 10000000,
+        "custom zombie upper numeric bounds accepted");
+    for (const char* base : {"ZOMBIE", "CONEHEAD_ZOMBIE", "BUCKETHEAD_ZOMBIE", "FOOTBALL_ZOMBIE", "SCREEN_DOOR_ZOMBIE", "NEWSPAPER_ZOMBIE"}) {
+        t.Check(write(std::string(R"("customZombies":[{"id":"choice","name":"Choice","base":")") + base + "\"}]") &&
+            PvzpMod::CustomZombies().size() == 1, "custom zombie permitted base accepted without inserting enums");
+    }
+    for (const char* head : {"seed_packet", "tombstone", "pea", "snowpea", "firepea", "sunflower", "chomper", "melon", "gatling"}) {
+        t.Check(write(std::string(R"("customZombies":[{"id":"choice","name":"Choice","head":")") + head + "\"}]") &&
+            PvzpMod::CustomZombies().size() == 1, "custom zombie whitelisted composite head accepted");
+    }
+    for (const char* ability : {"none", "seed_jam", "raise", "shoot_ice", "shoot_fire", "heal", "bite", "shoot_melon", "shoot_pea"}) {
+        t.Check(write(std::string(R"("customZombies":[{"id":"choice","name":"Choice","ability":")") + ability + "\"}]") &&
+            PvzpMod::CustomZombies().size() == 1, "custom zombie whitelisted ability accepted");
+    }
+    const std::vector<std::string> badZombies = {
+        "null", "{}", "[null]", "[{}]", "[{\"id\":\"only-id\"}]",
+        "[" + zombie + "," + zombie + "]",
+        R"([{"id":"../escape/","name":"Bad"}])", R"([{"id":"bad id","name":"Bad"}])",
+        R"([{"id":"bad\u0000id","name":"Bad"}])", R"([{"id":"bad","name":"\u0000"}])",
+        R"([{"id":"bad","name":"Bad","base":"GARGANTUAR"}])",
+        R"([{"id":"bad","name":"Bad","head":"arbitrary"}])",
+        R"([{"id":"bad","name":"Bad","ability":"arbitrary"}])",
+        "[{\"id\":\"" + std::string(97, 'a') + "\",\"name\":\"Bad\"}]",
+        "[{\"id\":\"bad\",\"name\":\"" + std::string(97, 'a') + "\"}]",
+    };
+    for (const auto& invalid : badZombies) {
+        t.Check(write("\"customZombies\":" + invalid) && PvzpMod::List().empty() && HasDiagnostic("registry"),
+            "custom zombie invalid type identity name duplicate and whitelist rejected atomically");
+    }
+    for (const char* field : {R"("health":0)", R"("health":10000001)", R"("armor":-1)", R"("armor":10000001)",
+        R"("interval":49)", R"("interval":60001)", R"("magnitude":0)", R"("magnitude":1001)",
+        R"("speedPercent":24)", R"("speedPercent":301)", R"("damagePercent":24)", R"("damagePercent":501)",
+        R"("slowResistancePercent":-1)", R"("slowResistancePercent":101)", R"("sunDrop":-1)", R"("sunDrop":1001)",
+        R"("tintR":-1)", R"("tintG":256)", R"("tintB":false)", R"("health":1.5)", R"("health":"600")", R"("unknown":1)"}) {
+        t.Check(write(std::string(R"("customZombies":[{"id":"bad","name":"Bad",)") + field + "}]") &&
+            PvzpMod::List().empty() && HasDiagnostic("registry"), "custom zombie numeric range type fraction and unknown field rejected");
+    }
+    const std::vector<std::string> badLevels = {
+        "null", "{}", "[null]", "[{}]", "[" + level + "," + level + "]",
+        R"([{"id":"bad/level","name":"Bad","waves":[{"spawns":[{"zombie":"ZOMBIE"}]}]}])",
+        R"([{"id":"bad","name":"Bad","description":"\u0000","waves":[{"spawns":[{"zombie":"ZOMBIE"}]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[]}])", R"([{"id":"bad","name":"Bad","waves":[{}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"spawns":[]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"delay":0,"spawns":[{"zombie":"ZOMBIE"}]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"delay":60001,"spawns":[{"zombie":"ZOMBIE"}]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"spawns":[{}]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"spawns":[{"zombie":"bad/ref"}]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"spawns":[{"zombie":"ZOMBIE","row":-2}]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"spawns":[{"zombie":"ZOMBIE","row":5}]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"spawns":[{"zombie":"ZOMBIE","count":0}]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"spawns":[{"zombie":"ZOMBIE","count":51}]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"spawns":[{"zombie":"ZOMBIE","count":26},{"zombie":"ZOMBIE","count":25}]}]}])",
+        R"([{"id":"bad","name":"Bad","startingSun":9991,"waves":[{"spawns":[{"zombie":"ZOMBIE"}]}]}])",
+        R"([{"id":"bad","name":"Bad","mystery":1,"waves":[{"spawns":[{"zombie":"ZOMBIE"}]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"mystery":1,"spawns":[{"zombie":"ZOMBIE"}]}]}])",
+        R"([{"id":"bad","name":"Bad","waves":[{"spawns":[{"zombie":"ZOMBIE","mystery":1}]}]}])",
+    };
+    for (const auto& invalid : badLevels) {
+        t.Check(write("\"customLevels\":" + invalid) && PvzpMod::List().empty() && HasDiagnostic("registry"),
+            "custom level invalid schema range total and nested unknown fields rejected atomically");
+    }
+    t.Check(write("\"customZombies\":[{\"id\":\"" + std::string(96, 'i') + "\",\"name\":\"" +
+        std::string(96, 'n') + "\"}]") && PvzpMod::CustomZombies().size() == 1,
+        "custom zombie identity and display name accept exact 96-byte limits");
+    const std::string longLevel = "\"customLevels\":[{\"id\":\"" + std::string(128, 'i') +
+        "\",\"name\":\"" + std::string(128, 'n') + "\",\"description\":\"" + std::string(1024, 'd') +
+        R"(","startingSun":9990,"waves":[{"delay":60000,"spawns":[{"zombie":"ZOMBIE","row":0}]}]}])";
+    t.Check(write(longLevel) && PvzpMod::CustomLevels().size() == 1 &&
+        PvzpMod::CustomLevels()[0].description.size() == 1024,
+        "custom level exact id name description and upper sun delay bounds accepted");
+    for (const std::pair<const char*, int> field : {std::pair<const char*, int>{"id",129}, {"name",129}, {"description",1025}}) {
+        std::string invalid = R"("customLevels":[{"id":"bad","name":"Bad","waves":[{"spawns":[{"zombie":"ZOMBIE"}]}])";
+        if (std::string(field.first) == "description") invalid += ",\"description\":\"" + std::string(field.second, 'x') + "\"";
+        else {
+            const std::string needle = std::string("\"") + field.first + "\":\"" + (std::string(field.first) == "id" ? "bad" : "Bad") + "\"";
+            const auto offset = invalid.find(needle);
+            invalid.replace(offset, needle.size(), std::string("\"") + field.first + "\":\"" + std::string(field.second, 'x') + "\"");
+        }
+        t.Check(write(invalid + "}]") && PvzpMod::List().empty(), "custom level oversized id name or description rejected");
+    }
+    auto many = [](int count, const std::string& item) {
+        std::string array = "[";
+        for (int i = 0; i < count; ++i) { if(i) array += ','; array += item; }
+        return array + "]";
+    };
+    for (const char* section : {"customZombies", "customLevels"}) {
+        std::string array = "[";
+        for (int i = 0; i < 65; ++i) {
+            if(i) array += ',';
+            array += "{\"id\":\"id" + std::to_string(i) + "\",\"name\":\"Name\"";
+            if (std::string(section) == "customLevels") array += R"(,"waves":[{"spawns":[{"zombie":"ZOMBIE"}]}])";
+            array += '}';
+            if (i == 63) t.Check(write("\"" + std::string(section) + "\":" + array + "]") &&
+                PvzpMod::Diagnostics().empty(), "custom registry accepts exact 64-entry limit");
+        }
+        t.Check(write("\"" + std::string(section) + "\":" + array + "]") && PvzpMod::List().empty() &&
+            HasDiagnostic("registry"), "custom registry rejects 65 entries");
+    }
+    const std::string wave = R"({"delay":1,"spawns":[{"zombie":"ZOMBIE","row":4,"count":50}]})";
+    t.Check(write(R"("customLevels":[{"id":"bounds","name":"Bounds","startingSun":0,"waves":)" + many(100, wave) + "}]") &&
+        PvzpMod::CustomLevels().size() == 1 && PvzpMod::CustomLevels()[0].waves.size() == 100,
+        "custom level accepts 100 waves and 50 zombies per wave at valid row boundary");
+    t.Check(write(R"("customLevels":[{"id":"bounds","name":"Bounds","waves":)" + many(101, wave) + "}]") &&
+        PvzpMod::List().empty(), "custom level rejects 101 waves");
+    t.Check(write(R"("customLevels":[{"id":"bounds","name":"Bounds","waves":[{"spawns":)" + many(50, R"({"zombie":"ZOMBIE"})") + "}]}]") &&
+        PvzpMod::CustomLevels().size() == 1, "custom wave accepts 50 distinct spawn records");
+    t.Check(write(R"("customLevels":[{"id":"bounds","name":"Bounds","waves":[{"spawns":)" + many(51, R"({"zombie":"ZOMBIE"})") + "}]}]") &&
+        PvzpMod::List().empty(), "custom wave rejects 51 spawn records");
+
+    // The early campaign references a custom id defined by a later-priority pack.
+    const fs::path cross = tmp / "cross-registry";
+    Write(cross / "a-levels" / "mod.json", "{\"id\":\"org.cross.levels\",\"customLevels\":[" + level + "]}");
+    Write(cross / "z-zombies" / "mod.json", "{\"id\":\"org.cross.zombies\",\"priority\":10,\"customZombies\":[" + zombie + "]}");
+    t.Check(PvzpMod::LoadFromDirectory(cross) && PvzpMod::List().size() == 2 &&
+        PvzpMod::CustomLevels().size() == 1 && PvzpMod::CustomZombies().size() == 1 &&
+        PvzpMod::Diagnostics().empty(), "cross-mod forward references survive complete snapshot rebuild");
+    const auto crossHash = PvzpMod::RulesFingerprint();
+    const auto revision = PvzpMod::SnapshotRevision();
+    t.Check(PvzpMod::SetEnabled("org.cross.zombies", false) && PvzpMod::CustomZombies().empty() &&
+        PvzpMod::CustomLevels().size() == 1 && PvzpMod::HasMods() && PvzpMod::SnapshotRevision() > revision,
+        "disabling variant pack retains unresolved campaign for runtime CanStart validation");
+    t.Check(PvzpMod::SetEnabled("org.cross.zombies", true) && PvzpMod::RulesFingerprint() == crossHash,
+        "reenabling forward definition restores complete effective fingerprint");
+
+    const fs::path collisions = tmp / "registry-collisions";
+    Write(collisions / "a" / "mod.json", "{\"id\":\"org.registry.a\",\"customZombies\":[" + zombie + "],\"customLevels\":[" + level + "]}");
+    Write(collisions / "z" / "mod.json", R"({"id":"org.registry.z","priority":5,"customZombies":[{"id":"test.synthetic-v1","name":"Winner","health":700}],"customLevels":[{"id":"test.level-1","name":"Winner","startingSun":10,"waves":[{"spawns":[{"zombie":"ZOMBIE","count":2}]}]}]})");
+    t.Check(PvzpMod::LoadFromDirectory(collisions) && PvzpMod::CustomZombies().size() == 1 &&
+        PvzpMod::CustomLevels().size() == 1 && PvzpMod::CustomZombies()[0].name == "Winner" &&
+        PvzpMod::CustomLevels()[0].startingSun == 10 && PvzpMod::Diagnostics().size() == 2,
+        "stable zombie and level id collisions replace whole entries with two diagnostics");
+    const auto collisionHash = PvzpMod::RulesFingerprint();
+    t.Check(PvzpMod::SetEnabled("org.registry.z", false) && PvzpMod::CustomZombies()[0].name == "合成僵尸" &&
+        PvzpMod::CustomLevels()[0].startingSun == 300 && PvzpMod::Diagnostics().empty(),
+        "disabling collision winner restores previous entries and removes transient warnings");
+    t.Check(PvzpMod::SetEnabled("org.registry.z", true) && PvzpMod::Diagnostics().size() == 2 &&
+        PvzpMod::RulesFingerprint() == collisionHash, "reenabling collisions regenerates stable diagnostics without accumulating");
+    t.Check(PvzpMod::LoadFromDirectory(tmp / "no-custom-registry") && PvzpMod::CustomZombies().empty() &&
+        PvzpMod::CustomLevels().empty() && !PvzpMod::HasMods(), "empty load resets both custom registries and HasMods");
+}
+
+void CustomRegistryFingerprints(Checks& t, const fs::path& tmp) {
+    const fs::path root = tmp / "registry-hash";
+    const fs::path manifest = root / "hash" / "mod.json";
+    auto hash = [&](const std::string& content) {
+        Write(manifest, "{\"id\":\"org.registry.hash\"," + content + "}");
+        PvzpMod::LoadFromDirectory(root);
+        return PvzpMod::RulesFingerprint();
+    };
+    const std::string zombie = R"("customZombies":[{"id":"synthetic","name":"Synthetic"})";
+    const auto baseline = hash(zombie + "]");
+    for (const char* field : {R"("health":601)", R"("armor":1)", R"("interval":601)", R"("magnitude":31)",
+        R"("speedPercent":101)", R"("damagePercent":101)", R"("slowResistancePercent":1)", R"("sunDrop":1)",
+        R"("tintR":254)", R"("tintG":254)", R"("tintB":254)", R"("base":"CONEHEAD_ZOMBIE")",
+        R"("head":"pea")", R"("ability":"shoot_pea")"}) {
+        std::string changed = zombie; changed.pop_back(); changed += ','; changed += field; changed += "}]";
+        t.Check(hash(changed) != baseline && PvzpMod::CustomZombies().size() == 1,
+            "every custom zombie optional field changes fingerprint");
+    }
+    t.Check(hash(R"("customZombies":[{"id":"different","name":"Synthetic"}])") != baseline,
+        "custom zombie stable identity changes fingerprint");
+    t.Check(hash(R"("customZombies":[{"id":"synthetic","name":"Different"}])") != baseline,
+        "custom zombie display name changes fingerprint");
+    const std::string a = R"({"id":"a","name":"A"})", b = R"({"id":"b","name":"B"})";
+    const auto ordered = hash("\"customZombies\":[" + a + "," + b + "]");
+    t.Check(hash("\"customZombies\":[" + b + "," + a + "]") != ordered,
+        "custom zombie registry first-encounter order participates in fingerprint");
+    const std::string prefix = R"("customLevels":[{"id":"level","name":"Level")";
+    const std::string wave = R"({"spawns":[{"zombie":"ZOMBIE"}]})";
+    const auto levelBaseline = hash(prefix + ",\"waves\":[" + wave + "]}]");
+    for (const char* field : {R"("description":"Different")", R"("startingSun":301)"}) {
+        t.Check(hash(prefix + "," + field + ",\"waves\":[" + wave + "]}]") != levelBaseline,
+            "custom level descriptive and sun fields change fingerprint");
+    }
+    for (const char* changed : {
+        R"("customLevels":[{"id":"different","name":"Level","waves":[{"spawns":[{"zombie":"ZOMBIE"}]}]}])",
+        R"("customLevels":[{"id":"level","name":"Different","waves":[{"spawns":[{"zombie":"ZOMBIE"}]}]}])",
+        R"("customLevels":[{"id":"level","name":"Level","waves":[{"delay":801,"spawns":[{"zombie":"ZOMBIE"}]}]}])",
+        R"("customLevels":[{"id":"level","name":"Level","waves":[{"spawns":[{"zombie":"CONEHEAD_ZOMBIE"}]}]}])",
+        R"("customLevels":[{"id":"level","name":"Level","waves":[{"spawns":[{"zombie":"ZOMBIE","row":0}]}]}])",
+        R"("customLevels":[{"id":"level","name":"Level","waves":[{"spawns":[{"zombie":"ZOMBIE","count":2}]}]}])"}) {
+        t.Check(hash(changed) != levelBaseline && PvzpMod::CustomLevels().size() == 1,
+            "custom level identity wave and spawn fields all change fingerprint");
+    }
+    const std::string alternate = R"({"spawns":[{"zombie":"CONEHEAD_ZOMBIE"}]})";
+    const auto waves = hash(prefix + ",\"waves\":[" + wave + "," + alternate + "]}]");
+    t.Check(hash(prefix + ",\"waves\":[" + alternate + "," + wave + "]}]") != waves,
+        "custom level wave order is gameplay-significant in fingerprint");
+    const std::string one = R"({"zombie":"ZOMBIE"})", two = R"({"zombie":"CONEHEAD_ZOMBIE"})";
+    const auto spawns = hash(prefix + ",\"waves\":[{\"spawns\":[" + one + "," + two + "]}]}]");
+    t.Check(hash(prefix + ",\"waves\":[{\"spawns\":[" + two + "," + one + "]}]}]") != spawns,
+        "custom level spawn sequence is fingerprinted without sorting");
+    const std::string firstLevel = R"({"id":"a","name":"A","waves":[{"spawns":[{"zombie":"ZOMBIE"}]}]})";
+    const std::string secondLevel = R"({"id":"b","name":"B","waves":[{"spawns":[{"zombie":"ZOMBIE"}]}]})";
+    const auto campaignOrder = hash("\"customLevels\":[" + firstLevel + "," + secondLevel + "]");
+    t.Check(hash("\"customLevels\":[" + secondLevel + "," + firstLevel + "]") != campaignOrder,
+        "custom level menu and campaign registry order participates in fingerprint");
+    t.Check(hash(R"("globals":{"startingSun":0e-10000})") && PvzpMod::List().size() == 1 &&
+        PvzpMod::GlobalInt("startingSun", -1) == 0, "zero with tiny exponent is exact zero not nonzero underflow");
+    t.Check(hash(R"("globals":{"startingSun":1e2})") && PvzpMod::GlobalInt("startingSun", -1) == 100,
+        "locale-independent number parser retains valid integer exponent support");
+}
+
 void PortableSaveValidation(Checks& t) {
     using Bytes = std::vector<uint8_t>;
     auto u32 = [](Bytes& bytes, uint32_t value) {
@@ -932,12 +1223,15 @@ int PvzpModRunTests() {
         CustomPlantPack(t, scratch.dir);
         NewContentPacks(t, scratch.dir);
         PrismAndElitePacks(t, scratch.dir);
+        CompositeCampaignPacks(t, scratch.dir);
         CustomPlantSecurity(t, scratch.dir);
         ExpandedCustomSlots(t, scratch.dir);
         CustomPlantFingerprintsAndReset(t, scratch.dir);
         CustomPlantCollisions(t, scratch.dir);
         DefinitionCacheReset(t, scratch.dir);
         ZombieVariantFields(t, scratch.dir);
+        CustomZombieAndLevelRegistries(t, scratch.dir);
+        CustomRegistryFingerprints(t, scratch.dir);
         PortableSaveValidation(t);
         PathsAndMissing(t, scratch.dir);
     } catch (const std::exception& error) {

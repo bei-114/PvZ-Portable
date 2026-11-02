@@ -11,12 +11,12 @@
       "behavior": "nut",
       "tint": "purple",
       "cost": 125,
-      "health": 1800,
-      "step": 600,
-      "events": ["freeze:row", "push:row:70"],
-      "interval": 800,
-      "pulseEvents": ["chill:row", "damage:row:100"],
-      "foodEvents": ["chill", "freeze:row", "damage:row:400", "push:row:120", "heal:1800", "sun:100"]
+      "health": 8000,
+      "step": 400,
+      "events": ["damage:row:600", "heal:1000", "freeze:row", "push:row:120"],
+      "interval": 400,
+      "pulseEvents": ["chill:row", "freeze:row", "damage:row:300", "push:row:30"],
+      "foodEvents": ["chill", "freeze:row", "damage:row:1800", "push:row:160", "heal:8000", "sun:250"]
     }
   ]
 }

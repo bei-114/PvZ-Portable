@@ -4,6 +4,7 @@
 #include "PvzpPlantFood.h"
 #include "PvzpMod.h"
 #include "PvzpCustomPlants.h"
+#include "PvzpCustomZombies.h"
 #include "../Lawn/Board.h"
 #include "../LawnApp.h"
 #include "../Resources.h"
@@ -101,7 +102,16 @@ std::string DebugSeedName(int seed)
 	return PvzpUiResourceName(GetPlantDefinition(type).mPlantName);
 }
 constexpr ZombieType spawnKinds[]={ZOMBIE_NORMAL,ZOMBIE_TRAFFIC_CONE,ZOMBIE_PAIL,ZOMBIE_NEWSPAPER,ZOMBIE_FOOTBALL,ZOMBIE_BALLOON,ZOMBIE_SNORKEL,ZOMBIE_GARGANTUAR};
-void Spawn(Board* b,int row){auto& s=states[b];if(b->mZombies.mSize+1>=b->mZombies.mMaxSize)return; auto z=spawnKinds[s.zombie]; if(z==ZOMBIE_SNORKEL && !b->StageHasPool())return; b->AddZombieInRow(z,row,Zombie::ZOMBIE_WAVE_DEBUG);}
+int ZombieChoiceCount(){return int(std::size(spawnKinds))+int(PvzpMod::CustomZombies().size());}
+std::string ZombieChoiceName(int index){
+ if(index>=int(std::size(spawnKinds))){const auto& all=PvzpMod::CustomZombies();size_t n=index-std::size(spawnKinds);return n<all.size()?PvzpUiText(all[n].name):"-";}
+ return PvzpUiResourceName(GetZombieDefinition(spawnKinds[std::clamp(index,0,int(std::size(spawnKinds))-1)]).mZombieName);
+}
+void Spawn(Board* b,int row){
+ auto& s=states[b];s.zombie=std::clamp(s.zombie,0,ZombieChoiceCount()-1);
+ if(s.zombie>=int(std::size(spawnKinds)))PvzpCustomZombies::Spawn(b,PvzpMod::CustomZombies()[s.zombie-std::size(spawnKinds)].id,row);
+ else PvzpCustomZombies::Spawn(b,GetZombieDefinition(spawnKinds[s.zombie]).mZombieName,row);
+}
 void Put(std::vector<uint8_t>& out,uint32_t v){for(int i=0;i<4;++i)out.push_back(uint8_t(v>>(8*i)));}
 bool Get(const std::vector<uint8_t>& bytes,size_t& p,uint32_t& v){if(p+4>bytes.size())return false;v=0;for(int i=0;i<4;++i)v|=uint32_t(bytes[p++])<<(8*i);return true;}
 }
@@ -112,7 +122,7 @@ bool Board::CanUseModTools() const {
  mApp->mGameMode!=GAMEMODE_CHALLENGE_ZEN_GARDEN&&mApp->mGameMode!=GAMEMODE_TREE_OF_WISDOM;
 }
 void Board::ResetModGameplay(){
- states.erase(this); PvzpModTools::Reset(this);PvzpPlantFood::Reset(this);ResetElectricProjectiles(this);PvzpCustomPlants::Reset(this);
+ states.erase(this); PvzpModTools::Reset(this);PvzpPlantFood::Reset(this);ResetElectricProjectiles(this);PvzpCustomPlants::Reset(this);PvzpCustomZombies::Reset(this);
  mDbgOpen=false;mDbgPlantPending=false;mPlantFoodSelecting=false;mDbgConsumeMouseUp=false;
  mPlantFoodCount=1;mPlantFoodTimer=0;mFanVolleys=0;mFanTicks=0;mFanPlantID=0xFFFFFFFFU;
 }
@@ -201,7 +211,7 @@ void Board::DrawDbgPanel(Graphics* graphics){
  if(!mDbgOpen)return;
  g->SetColor(Color(13,23,34,246));g->FillRect(540,86,256,416);
  if(!DebugSeedAvailable(s.seed))s.seed=SEED_ELECTRIC_GATLINGPEA;
- std::string title=s.page==3?"MOD LOAD STATUS":s.page==1?PvzpUiResourceName(GetZombieDefinition(spawnKinds[s.zombie]).mZombieName):DebugSeedName(s.seed);
+ std::string title=s.page==3?"MOD LOAD STATUS":s.page==1?ZombieChoiceName(s.zombie):DebugSeedName(s.seed);
  Text(g,title,668,108,Color(150,235,198));
  for(int i=0;i<9;++i)Box(g,PvzpModUI::ActionRect(this,i),Label(this,i));
 }
@@ -231,8 +241,8 @@ bool Board::DbgMouseDown(int x,int y){
    case 6:ClearCursor();mDbgOpen=false;mDbgPlantPending=true;break;
    case 7:for(Plant* p:mPlants)if(!p->mDead)p->mPlantHealth=std::max(p->mPlantHealth,p->mPlantMaxHealth);break;
   }}else if(s.page==1){switch(i){
-   case 0:s.zombie=(s.zombie+7)%8;break;case 1:s.zombie=(s.zombie+1)%8;break;
-   case 2:Spawn(this,spawnKinds[s.zombie]==ZOMBIE_SNORKEL?2:2);break;
+   case 0:s.zombie=(s.zombie+ZombieChoiceCount()-1)%ZombieChoiceCount();break;case 1:s.zombie=(s.zombie+1)%ZombieChoiceCount();break;
+   case 2:Spawn(this,2);break;
    case 3:for(int row=0;row<(StageHas6Rows()?6:5);++row)if(RowCanHaveZombies(row))Spawn(this,row);break;
    case 4:for(Zombie* z:mZombies)if(!z->mDead)z->DieNoLoot();break;
    case 5:for(Zombie* z:mZombies)if(!z->mDead&&!z->mMindControlled)z->ApplyChill(false);break;

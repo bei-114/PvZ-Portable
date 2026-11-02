@@ -13,7 +13,7 @@ RESOURCES=$(realpath -- "$RESOURCES")
 TEST_HOME=$(mktemp -d "${TMPDIR:-/tmp}/pvzp-live.XXXXXX")
 MODS="$TEST_HOME/.local/share/io.github.wszqkzqk/PvZPortable/mods"
 mkdir -p -- "$MODS"
-for pack in 70-box-nuts 80-brain 90-aurora-nut 95-bounty-zombies 100-prism-megaphone; do
+for pack in 70-box-nuts 80-brain 90-aurora-nut 95-bounty-zombies 100-prism-megaphone 110-composite-zombies 120-custom-campaign; do
   cp -a -- "$ROOT/tests/mods/$pack" "$MODS/"
 done
 printf 'Disposable test HOME and log directory: %s\n' "$TEST_HOME"
@@ -21,10 +21,16 @@ printf 'Disposable test HOME and log directory: %s\n' "$TEST_HOME"
   cd -- "$ROOT"
   PVZP_MOD_TEST=1 "$GAME" > "$TEST_HOME/mod-tests.log" 2>&1
 )
-export HOME="$TEST_HOME" PVZP_CUSTOM_TEST=1 SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy
-# Explicitly ignore dangerous/manual hooks from the caller's environment.
-unset PVZP_DEV_CHOOSER PVZP_DEV_UNLOCK PVZP_GAMEPLAY_TEST PVZP_ELECTRIC_TEST
-run=(timeout 180 "$GAME" -resdir "$RESOURCES")
+MODE=${3:-custom}
+export HOME="$TEST_HOME" SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy
+# Exactly one live driver can own a Board. Ignore inherited developer hooks.
+unset PVZP_DEV_CHOOSER PVZP_DEV_UNLOCK PVZP_GAMEPLAY_TEST PVZP_ELECTRIC_TEST PVZP_TEST_LANGUAGE PVZP_LEVEL_TEST PVZP_CUSTOM_TEST
+case "$MODE" in
+  custom) export PVZP_CUSTOM_TEST=1 ;;
+  levels) export PVZP_LEVEL_TEST=1 ;;
+  *) printf 'Unknown test mode: %s (custom or levels)\n' "$MODE" >&2; exit 2 ;;
+esac
+run=(timeout 240 "$GAME" -resdir "$RESOURCES")
 if [[ ${PVZP_CUSTOM_HOLD:-0} == 1 ]]; then run=("$GAME" -resdir "$RESOURCES"); fi
 set +e
 if [[ -n ${DISPLAY:-} ]]; then

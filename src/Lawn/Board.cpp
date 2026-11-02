@@ -44,6 +44,9 @@
 #include "../PvzpLib/PvzpPlantFood.h"
 #include "../PvzpLib/PvzpModUI.h"
 #include "../PvzpLib/PvzpCustomPlants.h"
+#include "../PvzpLib/PvzpCustomLevels.h"
+#include "../PvzpLib/PvzpLevelRegression.h"
+#include "../PvzpLib/PvzpCustomZombies.h"
 #include "../PvzpLib/PvzpFoley.h"
 #include "Widget/SeedChooserScreen.h"
 #include "../PvzpLib/Attachment.h"
@@ -253,6 +256,7 @@ Board::Board(LawnApp* theApp)
 
 Board::~Board()
 {
+	PvzpCustomLevels::Forget(this);
 	ResetModGameplay();
 }
 
@@ -354,6 +358,12 @@ void Board::TryToSaveGame()
 
 bool Board::NeedSaveGame()
 {
+	if (PvzpCustomLevels::IsActive(this))
+	{
+		const auto state = PvzpCustomLevels::Inspect(this);
+		return mApp->mGameScene == GameScenes::SCENE_PLAYING && !state.levelId.empty() &&
+			state.phase != PvzpCustomLevels::Phase::Error;
+	}
 	return
 		mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ICE &&
 		mApp->mGameMode != GameMode::GAMEMODE_UPSELL &&
@@ -589,6 +599,13 @@ void Board::PutInMissingZombies(int theWaveNumber, ZombiePicker* theZombiePicker
 
 void Board::PickZombieWaves()
 {
+	if (PvzpCustomLevels::IsActive(this))
+	{
+		mNumWaves = 1; // nonzero sentinel; director owns the actual finite waves
+		for (auto& wave : mZombiesInWave)
+			for (auto& zombie : wave) zombie = ZombieType::ZOMBIE_INVALID;
+		return;
+	}
 	// Set the total number of waves
 	if (mApp->IsAdventureMode())
 	{
@@ -863,6 +880,9 @@ void Board::PickBackground()
 {
 	switch (mApp->mGameMode)
 	{
+	case GameMode::GAMEMODE_MOD_LEVEL:
+		mBackground = BackgroundType::BACKGROUND_1_DAY;
+		break; // continue through shared lane/grid initialization below
 	case GameMode::GAMEMODE_ADVENTURE:
 		if (mLevel <= 1 * LEVELS_PER_AREA)
 		{
@@ -1202,6 +1222,18 @@ bool Board::IsZombieWaveDistributionOk()
 void Board::InitZombieWaves()
 {
 	memset(mZombieAllowed, false, sizeof(mZombieAllowed));
+	if (PvzpCustomLevels::IsActive(this))
+	{
+		PickZombieWaves();
+		mCurrentWave = mTotalSpawnedWaves = 0;
+		mZombieCountDown = mZombieCountDownStart = 60000;
+		mZombieHealthWaveStart = 0;
+		mLastBungeeWave = mProgressMeterWidth = mHugeWaveCountDown = 0;
+		mRiseFromGraveCounter = 0;
+		mLevelAwardSpawned = false;
+		mZombieHealthToNextWave = -1;
+		return;
+	}
 	if (mApp->IsAdventureMode())
 	{
 		InitZombieWavesForLevel(mLevel);
@@ -1544,6 +1576,7 @@ void Board::InitLevel()
 		mFogOffset = 1065 - LeftFogColumn() * 80;
 	}
 	mChallenge->InitLevel();
+	PvzpCustomLevels::Init(this);
 }
 
 Reanimation* Board::CreateRakeReanim(float theRakeX, float theRakeY, int theRenderOrder)
@@ -1557,6 +1590,7 @@ Reanimation* Board::CreateRakeReanim(float theRakeX, float theRakeY, int theRend
 
 void Board::PlaceRake()
 {
+	if (PvzpCustomLevels::IsActive(this)) return; // never consume a real profile purchase
 	if (!mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_RAKE])
 		return;
 
@@ -1632,6 +1666,7 @@ void Board::InitLawnMowers()
 
 bool Board::ChooseSeedsOnCurrentLevel()
 {
+	if (PvzpCustomLevels::IsActive(this)) return true;
 	// Dev-only hook: force the seed chooser on any level so the picker can be
 	// inspected without unlocking a profile (PVZP_DEV_CHOOSER=1).
 	if (std::getenv("PVZP_DEV_CHOOSER"))
@@ -1702,6 +1737,7 @@ LawnMower* Board::GetBottomLawnMower()
 
 void Board::UpdateLevelEndSequence()
 {
+	if (PvzpCustomLevels::IsActive(this)) return;
 	if (mNextSurvivalStageCounter > 0)
 	{
 		if (!IsScaryPotterDaveTalking())
@@ -5135,6 +5171,7 @@ void Board::PuzzleSaveStreak()
 
 void Board::ZombiesWon(Zombie* theZombie)
 {
+	if (PvzpCustomLevels::IsActive(this)) { PvzpCustomLevels::Lose(this); return; }
 	if (mApp->mGameScene == GameScenes::SCENE_ZOMBIES_WON)
 		return;
 
@@ -5321,6 +5358,7 @@ void Board::NextWaveComing()
 
 void Board::UpdateZombieSpawning()
 {
+	if (PvzpCustomLevels::IsActive(this)) { PvzpCustomLevels::Update(this); return; }
 	if (mApp->mGameMode == GameMode::GAMEMODE_UPSELL || mApp->mGameMode == GameMode::GAMEMODE_INTRO)
 		return;
 
@@ -5505,6 +5543,7 @@ void Board::UpdateIce()
 
 void Board::UpdateProgressMeter()
 {
+	if (PvzpCustomLevels::IsActive(this)) return;
 	if (mApp->IsFinalBossLevel())
 	{
 		Zombie* aBoss = GetBossZombie();
@@ -5877,6 +5916,7 @@ void Board::Update()
 	if (CanUseModTools())
 		UpdateModGameplay();
 	PvzpCustomPlants::Update(this);
+	PvzpCustomZombies::Update(this);
 	UpdateGridItems();
 	UpdateFwoosh();
 	UpdateGame();
@@ -5887,6 +5927,9 @@ void Board::Update()
 	mPrevMouseY = mApp->mWidgetManager->mLastMouseY;
 #ifndef __ANDROID__
 	PvzpRunCustomRegression(this);
+#endif
+#if defined(__linux__) && !defined(__ANDROID__)
+	PvzpRunLevelRegression(this); // last: may queue this Board for SafeDelete
 #endif
 }
 
@@ -6626,6 +6669,7 @@ bool Board::ProgressMeterHasFlags()
 
 void Board::DrawProgressMeter(Graphics* g)
 {
+	if (PvzpCustomLevels::IsActive(this)) return;
 	if (!HasProgressMeter())
 		return;
 
@@ -6731,6 +6775,7 @@ void Board::DrawHouseDoorTop(Graphics* g)
 
 void Board::DrawLevel(Graphics* g)
 {
+	if (PvzpCustomLevels::IsActive(this)) return; // director draws stable catalog title
 	std::string aLevelStr;
 	if (mApp->IsAdventureMode())
 	{
@@ -7567,6 +7612,7 @@ void Board::Draw(Graphics* g)
 	DrawGameObjects(g);
 	DrawPlantFood(g);
 	DrawDbgPanel(g);
+	PvzpCustomLevels::Draw(this, g);
 }
 
 
@@ -8664,6 +8710,7 @@ bool Board::HasConveyorBeltSeedBank()
 
 int Board::GetNumSeedsInBank()
 {
+	if (PvzpCustomLevels::IsActive(this)) return 8;
 	if (mApp->IsScaryPotterLevel())
 	{
 		return 1;

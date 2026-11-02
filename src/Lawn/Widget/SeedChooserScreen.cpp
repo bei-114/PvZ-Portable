@@ -33,6 +33,7 @@
 #include "../../Lawn/Plant.h"
 #include "../../PvzpLib/PvzpMod.h"
 #include "../../PvzpLib/PvzpCustomPlants.h"
+#include "../../PvzpLib/PvzpCustomLevels.h"
 #include "../ToolTipWidget.h"
 #include "SeedChooserScreen.h"
 #include "../../GameConstants.h"
@@ -284,6 +285,7 @@ void SeedChooserScreen::CrazyDavePickSeeds()
 
 bool SeedChooserScreen::Has7Rows()
 {
+	if (PvzpCustomLevels::IsMode(mApp)) return true;
 	// PlayerInfo* aPlayer = mApp->mPlayerInfo; // unused
 	if (mApp->HasFinishedAdventure() || mApp->mPlayerInfo->mPurchases[STORE_ITEM_PLANT_GATLINGPEA]) return true;
 	for (SeedType aSeedType = SEED_TWINSUNFLOWER; aSeedType < SEED_COBCANNON; aSeedType = (SeedType)(aSeedType + 1))
@@ -345,6 +347,7 @@ bool SeedChooserScreen::SeedNotAllowedToPick(SeedType theSeedType)
 
 bool SeedChooserScreen::SeedNotAllowedDuringTrial(SeedType theSeedType)
 {
+	if (PvzpCustomLevels::IsMode(mApp)) return false; // sandbox availability is not a purchase
 	return mApp->IsTrialStageLocked() && (theSeedType == SEED_SQUASH || theSeedType == SEED_THREEPEATER);
 }
 

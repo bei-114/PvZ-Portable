@@ -42,11 +42,15 @@
 #include "../../PvzpLib/PvzpMod.h"
 #include "../../PvzpLib/PvzpPlantFood.h"
 #include "../../PvzpLib/PvzpCustomPlants.h"
+#include "../../PvzpLib/PvzpCustomZombies.h"
+#include "../../PvzpLib/PvzpCustomLevels.h"
 #include "DataSync.h"
 #include "PortableSaveValidation.h"
 #include "misc/Buffer.h"
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
+#include <set>
 #include <memory>
 #include <type_traits>
 #include <vector>
@@ -99,7 +103,9 @@ enum SaveChunkTypeV4
 	SAVE4_CHUNK_MOD_GAMEPLAY = 0x4D4F4401,
 	SAVE4_CHUNK_MOD_RULES = 0x4D4F4402,
 	SAVE4_CHUNK_SEED_LAYOUT = PvzpSave::SeedLayoutChunk,
-	SAVE4_CHUNK_CUSTOM_PLANTS = 0x4D4F4404
+	SAVE4_CHUNK_CUSTOM_PLANTS = 0x4D4F4404,
+	SAVE4_CHUNK_CUSTOM_ZOMBIES = PvzpSave::CustomZombiesChunk,
+	SAVE4_CHUNK_CUSTOM_LEVELS = PvzpSave::CustomLevelsChunk
 };
 
 static constexpr const uint32_t SAVE4_CHUNK_VERSION = 1U;
@@ -1249,6 +1255,49 @@ static void SyncReanimationPortable(Board* theBoard, Reanimation* theReanimation
 	}
 }
 
+// Particle list ownership is serialized separately from its DataArray IDs.
+// Never publish an unchecked ID list: DataArrayGet is an assertion, not a safe
+// lookup in release builds, and list destructors free the objects they name.
+template <typename TID, typename T>
+static bool SyncParticleIDListPortable(PvzpList<TID>& list, PortableSaveContext& context,
+	PvzpAllocator& allocator, DataArray<T>& objects)
+{
+	int32_t count = list.mSize;
+	context.SyncInt32(count);
+	if (context.mFailed || count < 0 || uint32_t(count) > objects.mSize ||
+		(context.mReading && uint32_t(count) > context.mReader->Remaining() / 4))
+	{ context.mFailed = true; return false; }
+	std::vector<uint32_t> ids;
+	std::set<uint32_t> unique;
+	auto* node = list.mHead;
+	for (int32_t i = 0; i < count; ++i)
+	{
+		if (!context.mReading && !node) { context.mFailed = true; return false; }
+		uint32_t id = context.mReading ? 0 : uint32_t(node->mValue);
+		context.SyncUInt32(id);
+		if (context.mFailed || !(id & DATA_ARRAY_KEY_MASK) ||
+			(id & DATA_ARRAY_INDEX_MASK) >= objects.mMaxUsedCount || !objects.DataArrayTryToGet(id) || !unique.insert(id).second)
+		{ context.mFailed = true; return false; }
+		if (context.mReading)
+		{
+			auto* object = objects.DataArrayTryToGet(id);
+			if constexpr (std::is_same_v<T, PvzpParticle>)
+				{ if (object->mParticleEmitter) { context.mFailed = true; return false; } }
+			else if constexpr (std::is_same_v<T, PvzpParticleEmitter>)
+				{ if (object->mParticleSystem) { context.mFailed = true; return false; } }
+		}
+		ids.push_back(id);
+		if (!context.mReading) node = node->mNext;
+	}
+	if (!context.mReading && node) { context.mFailed = true; return false; }
+	if (context.mReading)
+	{
+		list.RemoveAll(); list.SetAllocator(&allocator);
+		for (uint32_t id : ids) list.AddTail(static_cast<TID>(id));
+	}
+	return true;
+}
+
 static void SyncParticlePortable(PvzpParticle* theParticle, PortableSaveContext& theContext)
 {
 	theContext.SyncInt32(theParticle->mParticleDuration);
@@ -1270,25 +1319,48 @@ static void SyncParticlePortable(PvzpParticle* theParticle, PortableSaveContext&
 		for (int j = 0; j < 2; j++)
 			theContext.SyncFloat(theParticle->mParticleFieldInterp[i][j]);
 	}
+	if (theContext.mReading)
+	{
+		bool valid = !theContext.mFailed && theParticle->mParticleDuration >= 1 && theParticle->mParticleAge >= 0 &&
+			theParticle->mCrossFadeDuration >= 0 && theParticle->mImageFrame >= -1;
+		for (float value : {theParticle->mParticleTimeValue, theParticle->mParticleLastTimeValue,
+			theParticle->mAnimationTimeValue, theParticle->mVelocity.x, theParticle->mVelocity.y,
+			theParticle->mPosition.x, theParticle->mPosition.y, theParticle->mSpinPosition, theParticle->mSpinVelocity})
+			valid = valid && std::isfinite(value);
+		for (float value : theParticle->mParticleInterp) valid = valid && std::isfinite(value);
+		for (const auto& field : theParticle->mParticleFieldInterp)
+			for (float value : field) valid = valid && std::isfinite(value);
+		if (!valid) theContext.mFailed = true;
+	}
 }
 
 static void SyncParticleEmitterPortable(PvzpParticleSystem* theParticleSystem, PvzpParticleEmitter* theParticleEmitter, PortableSaveContext& theContext)
 {
-	int aEmitterDefIndex = 0;
+	auto* definition = theParticleSystem->mParticleDef;
+	if (!definition || !definition->mEmitterDefs || definition->mEmitterDefCount <= 0)
+	{ theContext.mFailed = true; return; }
+	int32_t aEmitterDefIndex = -1;
+	if (!theContext.mReading)
+		for (int32_t i = 0; i < definition->mEmitterDefCount; ++i)
+			if (theParticleEmitter->mEmitterDef == &definition->mEmitterDefs[i]) aEmitterDefIndex = i;
+	theContext.SyncInt32(aEmitterDefIndex);
+	if (theContext.mFailed || aEmitterDefIndex < 0 || aEmitterDefIndex >= definition->mEmitterDefCount ||
+		(theContext.mReading && theParticleEmitter->mParticleSystem))
+	{ theContext.mFailed = true; return; }
 	if (theContext.mReading)
 	{
-		theContext.SyncInt32(aEmitterDefIndex);
 		theParticleEmitter->mParticleSystem = theParticleSystem;
-		theParticleEmitter->mEmitterDef = &theParticleSystem->mParticleDef->mEmitterDefs[aEmitterDefIndex];
+		theParticleEmitter->mEmitterDef = &definition->mEmitterDefs[aEmitterDefIndex];
 	}
-	else
-	{
-		aEmitterDefIndex = (reinterpret_cast<intptr_t>(theParticleEmitter->mEmitterDef) -
-			reinterpret_cast<intptr_t>(theParticleSystem->mParticleDef->mEmitterDefs)) / sizeof(PvzpEmitterDefinition);
-		theContext.SyncInt32(aEmitterDefIndex);
-	}
-
-	SyncDataIDListPortable((PvzpList<uint32_t>*)&theParticleEmitter->mParticleList, theContext, &theParticleSystem->mParticleHolder->mParticleListNodeAllocator);
+	auto& holder = *theParticleSystem->mParticleHolder;
+	if (!SyncParticleIDListPortable(theParticleEmitter->mParticleList, theContext, holder.mParticleListNodeAllocator, holder.mParticles)) return;
+	if (theContext.mReading)
+		for (auto* node = theParticleEmitter->mParticleList.mHead; node; node = node->mNext)
+		{
+			auto* particle = holder.mParticles.DataArrayTryToGet(uint32_t(node->mValue));
+			if (particle->mParticleEmitter) { theContext.mFailed = true; return; }
+			particle->mParticleEmitter = theParticleEmitter;
+		}
 	SyncVector2Portable(theContext, theParticleEmitter->mSystemCenter);
 	SyncColorPortable(theContext, theParticleEmitter->mColorOverride);
 	SyncImagePortable(theContext, theParticleEmitter->mImageOverride);
@@ -1312,14 +1384,26 @@ static void SyncParticleEmitterPortable(PvzpParticleSystem* theParticleSystem, P
 			theContext.SyncFloat(theParticleEmitter->mSystemFieldInterp[i][j]);
 	}
 
-	for (PvzpListNode<ParticleID>* aNode = theParticleEmitter->mParticleList.mHead; aNode != nullptr; aNode = aNode->mNext)
+	if (theContext.mFailed) return;
+	if (theContext.mReading)
 	{
-		PvzpParticle* aParticle = theParticleSystem->mParticleHolder->mParticles.DataArrayGet(static_cast<uint32_t>(aNode->mValue));
-		if (theContext.mReading)
-		{
-			aParticle->mParticleEmitter = theParticleEmitter;
-		}
+		bool valid = theParticleEmitter->mSystemDuration >= 1 && theParticleEmitter->mSystemAge >= -1 &&
+			theParticleEmitter->mParticlesSpawned >= 0 && theParticleEmitter->mEmitterCrossFadeCountDown >= 0 &&
+			theParticleEmitter->mFrameOverride >= -1;
+		for (float value : {theParticleEmitter->mSpawnAccum, theParticleEmitter->mSystemCenter.x,
+			theParticleEmitter->mSystemCenter.y, theParticleEmitter->mSystemTimeValue,
+			theParticleEmitter->mSystemLastTimeValue, theParticleEmitter->mScaleOverride}) valid = valid && std::isfinite(value);
+		for (float value : theParticleEmitter->mTrackInterp) valid = valid && std::isfinite(value);
+		for (const auto& field : theParticleEmitter->mSystemFieldInterp)
+			for (float value : field) valid = valid && std::isfinite(value);
+		if (!valid) { theContext.mFailed = true; return; }
+	}
+	for (auto* aNode = theParticleEmitter->mParticleList.mHead; aNode; aNode = aNode->mNext)
+	{
+		auto* aParticle = holder.mParticles.DataArrayTryToGet(uint32_t(aNode->mValue));
+		if (!aParticle) { theContext.mFailed = true; return; }
 		SyncParticlePortable(aParticle, theContext);
+		if (theContext.mFailed) return;
 	}
 }
 
@@ -1331,11 +1415,16 @@ static void SyncParticleSystemPortable(Board* theBoard, PvzpParticleSystem* theP
 		theParticleSystem->mParticleHolder = theBoard->mApp->mEffectSystem->mParticleHolder.get();
 	}
 
-	SyncDataIDListPortable((PvzpList<uint32_t>*)&theParticleSystem->mEmitterList, theContext, &theParticleSystem->mParticleHolder->mEmitterListNodeAllocator);
-	for (PvzpListNode<ParticleEmitterID>* aNode = theParticleSystem->mEmitterList.mHead; aNode != nullptr; aNode = aNode->mNext)
+	if (theContext.mFailed || !theParticleSystem->mParticleHolder || !theParticleSystem->mParticleDef)
+	{ theContext.mFailed = true; return; }
+	auto& holder = *theParticleSystem->mParticleHolder;
+	if (!SyncParticleIDListPortable(theParticleSystem->mEmitterList, theContext, holder.mEmitterListNodeAllocator, holder.mEmitters)) return;
+	for (auto* aNode = theParticleSystem->mEmitterList.mHead; aNode; aNode = aNode->mNext)
 	{
-		PvzpParticleEmitter* aEmitter = theParticleSystem->mParticleHolder->mEmitters.DataArrayGet(static_cast<uint32_t>(aNode->mValue));
+		auto* aEmitter = holder.mEmitters.DataArrayTryToGet(uint32_t(aNode->mValue));
+		if (!aEmitter) { theContext.mFailed = true; return; }
 		SyncParticleEmitterPortable(theParticleSystem, aEmitter, theContext);
+		if (theContext.mFailed) return;
 	}
 
 	theContext.SyncEnum(theParticleSystem->mEffectType);
@@ -1808,14 +1897,117 @@ static void SyncGridItemsPortable(PortableSaveContext& theContext, Board* theBoa
 	SyncDataArrayObjectsTLV(theContext, theBoard->mGridItems, SyncGridItemTailPortable);
 }
 
+// Same v4 wire layout as SyncDataArrayIdsOnlyPortable, but stage metadata
+// before replacing any slot IDs. Free-list links are indices, not live IDs.
+template <typename T>
+static void SyncParticleArrayIdsPortable(PortableSaveContext& context, DataArray<T>& array)
+{
+	uint32_t freeHead = array.mFreeListHead, used = array.mMaxUsedCount, size = array.mSize;
+	uint32_t nextKey = array.mNextKey, capacity = array.mMaxSize;
+	context.SyncUInt32(freeHead); context.SyncUInt32(used); context.SyncUInt32(size);
+	context.SyncUInt32(nextKey); context.SyncUInt32(capacity);
+	if (context.mFailed || capacity != array.mMaxSize || used > capacity || size > used || freeHead > used ||
+		!nextKey || nextKey >= DATA_ARRAY_MAX_SIZE || (context.mReading && used > context.mReader->Remaining() / 4))
+	{ context.mFailed = true; return; }
+	std::vector<uint32_t> ids(used);
+	uint32_t live = 0;
+	for (uint32_t i = 0; i < used; ++i)
+	{
+		ids[i] = context.mReading ? 0 : array.DataArrayGetIDAt(i);
+		context.SyncUInt32(ids[i]);
+		if (ids[i] & DATA_ARRAY_KEY_MASK)
+		{
+			if ((ids[i] & DATA_ARRAY_INDEX_MASK) != i) { context.mFailed = true; return; }
+			++live;
+		}
+		else if (ids[i] > used) { context.mFailed = true; return; }
+	}
+	if (context.mFailed || live != size) { context.mFailed = true; return; }
+	std::vector<bool> visited(used, false);
+	uint32_t cursor = freeHead, freeCount = 0;
+	while (cursor != used)
+	{
+		if (cursor >= used || visited[cursor] || (ids[cursor] & DATA_ARRAY_KEY_MASK))
+		{ context.mFailed = true; return; }
+		visited[cursor] = true; ++freeCount; cursor = ids[cursor];
+	}
+	if (freeCount != used - size) { context.mFailed = true; return; }
+	if (context.mReading)
+	{
+		array.mFreeListHead = freeHead; array.mMaxUsedCount = used; array.mSize = size; array.mNextKey = nextKey;
+		for (uint32_t i = 0; i < used; ++i) array.DataArrayGetIDAt(i) = ids[i];
+	}
+}
+
+static void ClearParticleImportState(Board* board)
+{
+	auto& holder = *board->mApp->mEffectSystem->mParticleHolder;
+	// Systems own emitters; emitters own particles. Destruction MUST happen
+	// before incoming IDs are published, never while resetting imported systems.
+	holder.mParticleSystems.DataArrayFreeAll();
+	holder.mEmitters.DataArrayFreeAll();
+	holder.mParticles.DataArrayFreeAll();
+	holder.mEmitterListNodeAllocator.FreeAll();
+	holder.mParticleListNodeAllocator.FreeAll();
+}
+
+static bool ValidParticleImportState(Board* board)
+{
+	auto& holder = *board->mApp->mEffectSystem->mParticleHolder;
+	std::set<uint32_t> emitters, particles;
+	for (auto* system : holder.mParticleSystems)
+	{
+		if (system->mParticleHolder != &holder || !system->mParticleDef) return false;
+		bool knownDefinition = false;
+		for (int i = 0; i < gParticleDefCount; ++i) knownDefinition |= system->mParticleDef == &gParticleDefArray[i];
+		if (!knownDefinition) return false;
+		int emitterCount = 0;
+		for (auto* node = system->mEmitterList.mHead; node; node = node->mNext)
+		{
+			if (++emitterCount > int(holder.mEmitters.mSize) || !emitters.insert(uint32_t(node->mValue)).second) return false;
+			auto* emitter = holder.mEmitters.DataArrayTryToGet(uint32_t(node->mValue));
+			if (!emitter || emitter->mParticleSystem != system || !emitter->mEmitterDef) return false;
+			bool knownEmitter = false;
+			for (int i = 0; i < system->mParticleDef->mEmitterDefCount; ++i)
+				knownEmitter |= emitter->mEmitterDef == &system->mParticleDef->mEmitterDefs[i];
+			if (!knownEmitter) return false;
+			if (emitter->mCrossFadeEmitterID != ParticleEmitterID::PARTICLEEMITTERID_NULL)
+			{
+				auto* source = holder.mEmitters.DataArrayTryToGet(uint32_t(emitter->mCrossFadeEmitterID));
+				if (!source || source == emitter || source->mParticleSystem != system) return false;
+			}
+			int particleCount = 0;
+			for (auto* pnode = emitter->mParticleList.mHead; pnode; pnode = pnode->mNext)
+			{
+				if (++particleCount > int(holder.mParticles.mSize) || !particles.insert(uint32_t(pnode->mValue)).second) return false;
+				auto* particle = holder.mParticles.DataArrayTryToGet(uint32_t(pnode->mValue));
+				if (!particle || particle->mParticleEmitter != emitter) return false;
+				// RenderParams recursively follows cross-fade sources: reject stale
+				// IDs and cycles before the first post-load Draw, not just Update.
+				auto* current = particle;
+				uint32_t depth = 0;
+				while (current->mCrossFadeParticleID != ParticleID::PARTICLEID_NULL)
+				{
+					if (++depth > holder.mParticles.mSize) return false;
+					current = holder.mParticles.DataArrayTryToGet(uint32_t(current->mCrossFadeParticleID));
+					if (!current || !current->mParticleEmitter || current->mParticleEmitter->mParticleSystem != system) return false;
+				}
+			}
+			if (particleCount != emitter->mParticleList.mSize) return false;
+		}
+		if (emitterCount != system->mEmitterList.mSize) return false;
+	}
+	return emitters.size() == holder.mEmitters.mSize && particles.size() == holder.mParticles.mSize;
+}
+
 static void SyncParticleEmittersPortable(PortableSaveContext& theContext, Board* theBoard)
 {
-	SyncDataArrayIdsOnlyPortable(theContext, theBoard->mApp->mEffectSystem->mParticleHolder->mEmitters);
+	SyncParticleArrayIdsPortable(theContext, theBoard->mApp->mEffectSystem->mParticleHolder->mEmitters);
 }
 
 static void SyncParticlesPortable(PortableSaveContext& theContext, Board* theBoard)
 {
-	SyncDataArrayIdsOnlyPortable(theContext, theBoard->mApp->mEffectSystem->mParticleHolder->mParticles);
+	SyncParticleArrayIdsPortable(theContext, theBoard->mApp->mEffectSystem->mParticleHolder->mParticles);
 }
 
 static void SyncParticleSystemsPortable(PortableSaveContext& theContext, Board* theBoard)
@@ -2015,6 +2207,46 @@ static void SyncCustomPlantsState(PortableSaveContext& c, Board* board)
 	}
 }
 
+static void SyncCustomZombiesState(PortableSaveContext& c, Board* board)
+{
+	std::vector<uint8_t> bytes;
+	uint32_t size = 0;
+	if (!c.mReading) {
+		bytes = PvzpCustomZombies::Save(board);
+		if (bytes.empty() || bytes.size() > PvzpSave::MaxBlobBytes) { c.mFailed = true; return; }
+		size = static_cast<uint32_t>(bytes.size());
+	}
+	c.SyncUInt32(size);
+	if (c.mFailed || size > PvzpSave::MaxBlobBytes || (c.mReading && size > c.mReader->Remaining()))
+	{ c.mFailed = true; return; }
+	if (c.mReading) bytes.resize(size);
+	if (size) c.SyncBytes(bytes.data(), size);
+	if (c.mReading && !c.mFailed) {
+		for (Zombie* z : board->mZombies) { z->mApp = board->mApp; z->mBoard = board; }
+		for (Projectile* p : board->mProjectiles) { p->mApp = board->mApp; p->mBoard = board; }
+		for (Plant* p : board->mPlants) { p->mApp = board->mApp; p->mBoard = board; }
+		if (!PvzpCustomZombies::Load(board, bytes)) c.mFailed = true;
+	}
+}
+
+static void SyncCustomLevelsState(PortableSaveContext& c, Board* board)
+{
+	if (!PvzpCustomLevels::IsActive(board)) { c.mFailed = true; return; }
+	std::string payload;
+	uint32_t size = 0;
+	if (!c.mReading) {
+		payload = PvzpCustomLevels::SavePayload(board);
+		if (payload.empty() || payload.size() > 1024U) { c.mFailed = true; return; }
+		size = static_cast<uint32_t>(payload.size());
+	}
+	c.SyncUInt32(size);
+	if (c.mFailed || size == 0 || size > 1024U || (c.mReading && size > c.mReader->Remaining()))
+	{ c.mFailed = true; return; }
+	if (c.mReading) payload.resize(size);
+	c.SyncBytes(payload.data(), size);
+	if (c.mReading && !c.mFailed && !PvzpCustomLevels::StageLoadPayload(board, payload)) c.mFailed = true;
+}
+
 static void SyncSeedLayout(PortableSaveContext& c, Board*)
 {
 	uint32_t layout = PvzpSave::StableSeedLayout;
@@ -2104,6 +2336,10 @@ static ChunkSyncFn GetChunkSyncFn(uint32_t theChunkType)
 		return SyncSeedLayout;
 	case SAVE4_CHUNK_CUSTOM_PLANTS:
 		return SyncCustomPlantsState;
+	case SAVE4_CHUNK_CUSTOM_ZOMBIES:
+		return SyncCustomZombiesState;
+	case SAVE4_CHUNK_CUSTOM_LEVELS:
+		return SyncCustomLevelsState;
 	default:
 		return nullptr;
 	}
@@ -2376,20 +2612,55 @@ static bool LawnLoadGameV4(Board* theBoard, const std::string& theFilePath)
 		explicit LayoutScope(bool unmarked) { gUnmarkedSeedLayout = unmarked; gUnmarkedPseudoSeedSeen = false; }
 		~LayoutScope() { gUnmarkedSeedLayout = oldUnmarked; gUnmarkedPseudoSeedSeen = oldSeen; }
 	} layoutScope(!marked);
+	bool hasDirector = false, hasZombieSidecars = false;
 	for (const auto& chunk : chunks)
 	{
-		if (chunk.type == SAVE4_CHUNK_MOD_GAMEPLAY || chunk.type == SAVE4_CHUNK_CUSTOM_PLANTS) continue;
+		if (chunk.type == SAVE4_CHUNK_CUSTOM_LEVELS) hasDirector = true;
+		if (chunk.type == SAVE4_CHUNK_CUSTOM_ZOMBIES) hasZombieSidecars = true;
+	}
+	if (PvzpCustomLevels::IsActive(theBoard) != hasDirector || (hasDirector && !hasZombieSidecars))
+	{
+		PvzpLogLn("Save rejected: custom mode requires its director checkpoint; vanilla mode cannot import one");
+		return false;
+	}
+	// Destroy the OLD particle ownership graph before any incoming IDs become
+	// visible. A system destructor frees its emitters and particles: resetting
+	// it after chunks 8/9 would otherwise free the NEW imported objects.
+	ClearParticleImportState(theBoard);
+	for (const auto& chunk : chunks)
+	{
+		if (chunk.type == SAVE4_CHUNK_MOD_GAMEPLAY || chunk.type == SAVE4_CHUNK_CUSTOM_PLANTS ||
+			chunk.type == SAVE4_CHUNK_CUSTOM_ZOMBIES || chunk.type == SAVE4_CHUNK_CUSTOM_LEVELS ||
+			chunk.type == SAVE4_CHUNK_PARTICLE_EMITTERS || chunk.type == SAVE4_CHUNK_PARTICLE_PARTICLES ||
+			chunk.type == SAVE4_CHUNK_PARTICLE_SYSTEMS) continue;
 		if (!ReadChunkV4(chunk.type, chunk.bytes.data, chunk.bytes.size, theBoard)) return false;
 	}
-	// Side-state uses generation ids and must import after entity chunks even
-	// when an otherwise-valid file reordered the chunk envelopes.
-	for (const auto& chunk : chunks)
-		if (chunk.type == SAVE4_CHUNK_MOD_GAMEPLAY || chunk.type == SAVE4_CHUNK_CUSTOM_PLANTS)
-			if (!ReadChunkV4(chunk.type, chunk.bytes.data, chunk.bytes.size, theBoard)) return false;
+	// Finish other destructive entity/reanimation imports first, then restore
+	// particle IDs before their owning lists. File chunk order is irrelevant.
+	for (uint32_t type : {uint32_t(SAVE4_CHUNK_PARTICLE_EMITTERS),
+		uint32_t(SAVE4_CHUNK_PARTICLE_PARTICLES), uint32_t(SAVE4_CHUNK_PARTICLE_SYSTEMS)})
+		for (const auto& chunk : chunks)
+			if (chunk.type == type && !ReadChunkV4(type, chunk.bytes.data, chunk.bytes.size, theBoard)) return false;
+	if (!ValidParticleImportState(theBoard)) return false;
+	// Explicit import phases, independent of file order. MOD_GAMEPLAY can reset
+	// runtime sidecars, so it must precede both entity-sidecar registries.
+	for (uint32_t type : {uint32_t(SAVE4_CHUNK_MOD_GAMEPLAY), uint32_t(SAVE4_CHUNK_CUSTOM_PLANTS),
+		uint32_t(SAVE4_CHUNK_CUSTOM_ZOMBIES)})
+		for (const auto& chunk : chunks)
+			if (chunk.type == type && !ReadChunkV4(chunk.type, chunk.bytes.data, chunk.bytes.size, theBoard)) return false;
 	if (!marked && gUnmarkedPseudoSeedSeen)
 		PvzpLogLn("Unmarked save contains pseudo seed ids: interpreting baseline NUM_SEED_TYPES=54; intermediate custom-inserted layouts are ambiguous and are NOT migrated. Restart the level if its contents differ.");
 
 	FixBoardAfterLoad(theBoard);
+	// Stage only after entities and MOD05 are restored, then apply after all
+	// pointer fix-ups. No director save may trust entity pointers or array order.
+	if (hasDirector)
+	{
+		for (const auto& chunk : chunks)
+			if (chunk.type == SAVE4_CHUNK_CUSTOM_LEVELS &&
+				!ReadChunkV4(chunk.type, chunk.bytes.data, chunk.bytes.size, theBoard)) return false;
+		if (!PvzpCustomLevels::ApplyPendingLoad(theBoard)) return false;
+	}
 	theBoard->mApp->mGameScene = GameScenes::SCENE_PLAYING;
 	return true;
 }
@@ -2859,6 +3130,7 @@ static void SyncBoard(SaveGameContext& theContext, Board* theBoard)
 
 bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 {
+	PvzpCustomLevels::Forget(theBoard);
 	theBoard->ResetModGameplay();
 	ResetElectricProjectiles(theBoard);
 	if (LawnLoadGameV4(theBoard, theFilePath))
@@ -2876,6 +3148,7 @@ bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 	// structures. Never memcpy those bytes into this extended runtime. Portable
 	// v4 saves remain supported; an incompatible legacy file is left untouched.
 	PvzpLogLn("Save not loaded: invalid portable save or unsupported legacy binary layout");
+	PvzpCustomLevels::Forget(theBoard);
 	theBoard->ResetModGameplay();
 	return false;
 }
@@ -2907,6 +3180,8 @@ bool LawnSaveGame(Board* theBoard, const std::string& theFilePath)
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_MOD_GAMEPLAY, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_MOD_RULES, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_CUSTOM_PLANTS, theBoard)) return false;
+	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_CUSTOM_ZOMBIES, theBoard)) return false;
+	if (PvzpCustomLevels::IsActive(theBoard) && !WriteChunkV4(aPayload, SAVE4_CHUNK_CUSTOM_LEVELS, theBoard)) return false;
 
 	SaveFileHeaderV4 aHeader{};
 	memcpy(aHeader.mMagic, SAVE_FILE_MAGIC_V4, sizeof(aHeader.mMagic));

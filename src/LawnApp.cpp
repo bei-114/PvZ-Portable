@@ -27,6 +27,9 @@
 #include <cstdlib>
 #include "Resources.h"
 #include "PvzpLib/PvzpMod.h"
+#include "PvzpLib/PvzpCustomLevels.h"
+#include "PvzpLib/PvzpLevelRegression.h"
+#include "PvzpLib/PvzpCustomPlants.h"
 #include "PvzpLib/PvzpLocale.h"
 #include "PvzpLib/PvzpFontFallback.h"
 #include "Lawn/LawnCommon.h"
@@ -351,6 +354,20 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 	mGameMode = theGameMode;
 	if (theLookForSavedGame && TryLoadGame())
 		return;
+	if (theLookForSavedGame && PvzpCustomLevels::IsMode(this))
+	{
+		// A missing catalog ID, changed rules, or corrupt checkpoint must never
+		// become a fresh vanilla game (or erase the user's checkpoint).
+		ShowGameSelector();
+		PvzpCustomLevels::OpenPicker(this);
+		DoDialog(Dialogs::DIALOG_MESSAGE, true,
+			PvzpCustomLevels::Text(this, "CUSTOM_LEVELS", "Custom Levels", "自定义关卡"),
+			PvzpCustomLevels::Text(this, "CUSTOM_LEVEL_LOAD_FAILED",
+				"The custom checkpoint could not be loaded. Check that its content packs are enabled. The checkpoint was left untouched.",
+				"无法读取自定义关卡存档，请检查所需内容包是否已启用。原存档保持不变。"),
+			"[DIALOG_BUTTON_OK]", Dialog::BUTTONS_FOOTER);
+		return;
+	}
 
 	std::string aFileName = GetSavedGameName(mGameMode, mPlayerInfo->mId);
 	EraseFile(aFileName);
@@ -387,6 +404,7 @@ bool LawnApp::SaveFileExists()
 
 bool LawnApp::TryLoadGame()
 {
+	if (PvzpCustomLevels::IsMode(this)) mBoardResult = BoardResult::BOARDRESULT_NONE;
 	std::string aSaveName = GetSavedGameName(mGameMode, mPlayerInfo->mId);
 	std::string aLegacySaveName = GetLegacySavedGameName(mGameMode, mPlayerInfo->mId);
 	mMusic->StopAllMusic();
@@ -659,6 +677,17 @@ AlmanacDialog* LawnApp::DoAlmanacDialog(SeedType theSeedType, ZombieType theZomb
 
 void LawnApp::DoContinueDialog()
 {
+	if (PvzpCustomLevels::IsMode(this))
+	{
+		// The picker already explicitly requested Continue. Its checkpoint ID
+		// has been validated and restored; do not route to a vanilla challenge.
+		mBoard->Pause(false);
+		mSoundSystem->GamePause(false);
+		mMusic->GameMusicPause(false);
+		for (Zombie* zombie : mBoard->mZombies)
+			if (!zombie->mDead && zombie->mPlayingSong) zombie->StartZombieSound();
+		return;
+	}
 	ContinueDialog* aDialog = new ContinueDialog(this);
 	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 	AddDialog(Dialogs::DIALOG_CONTINUE, aDialog);
@@ -1210,6 +1239,14 @@ void LawnApp::Init()
 #if defined(__linux__) && !defined(__ANDROID__)
 	// Live regression owns a disposable HOME. Auto-create only its test profile;
 	// this path is opt-in and is not compiled into the Android application.
+	if (std::getenv("PVZP_LEVEL_TEST") && std::getenv("PVZP_CUSTOM_TEST"))
+	{
+		PvzpLogLn("LTEST FAIL: PVZP_LEVEL_TEST and PVZP_CUSTOM_TEST must not run concurrently");
+		Shutdown();
+		std::exit(2);
+	}
+	if (PvzpLevelRegressionEnabled() && !mPlayerInfo)
+		mPlayerInfo = mProfileMgr->AddProfile("Regression"); // no unlock/purchase writes
 	if (std::getenv("PVZP_CUSTOM_TEST"))
 	{
 		if (!mPlayerInfo) mPlayerInfo = mProfileMgr->AddProfile("Regression");
@@ -1239,6 +1276,9 @@ void LawnApp::Init()
 	mMaxTime = GetInteger("MaxTime", 60);
 
 	mTitleScreen = std::make_unique<TitleScreen>(this);
+#if defined(__linux__) && !defined(__ANDROID__)
+	if (PvzpLevelRegressionEnabled()) mTitleScreen->mQuickLoadKey = static_cast<KeyCode>(0x4D);
+#endif
 	mTitleScreen->Resize(0, 0, mWidth, mHeight);
 	mWidgetManager->AddWidget(mTitleScreen.get());
 	mWidgetManager->SetFocus(mTitleScreen.get());
@@ -1327,6 +1367,7 @@ void LawnApp::HandleCmdLineParam(std::string_view theParamName, std::string_view
 
 bool LawnApp::UpdatePlayerProfileForFinishingLevel()
 {
+	if (PvzpCustomLevels::IsMode(this)) return false;
 	bool aUnlockedNewChallenge = false;
 
 	if (IsAdventureMode())
@@ -1429,6 +1470,7 @@ bool LawnApp::UpdatePlayerProfileForFinishingLevel()
 
 void LawnApp::CheckForGameEnd()
 {
+	if (PvzpCustomLevels::IsMode(this)) return; // director owns results, never vanilla awards
 	if (mBoard == nullptr || !mBoard->mLevelComplete)
 		return;
 
@@ -1775,6 +1817,16 @@ void LawnApp::LoadingCompleted()
 
 	mResourceManager->DeleteImage("IMAGE_TITLESCREEN");
 #if defined(__linux__) && !defined(__ANDROID__)
+	if (PvzpLevelRegressionEnabled() && mPlayerInfo)
+	{
+		if (!PvzpCustomLevels::Start(this, "pvzp.seed_heist"))
+		{
+			PvzpLogLn("LTEST FAIL: required pvzp.seed_heist fixture is unavailable");
+			Shutdown();
+			std::exit(1);
+		}
+		return;
+	}
 	if (std::getenv("PVZP_CUSTOM_TEST") && mPlayerInfo)
 	{
 		PreNewGame(GameMode::GAMEMODE_SURVIVAL_NORMAL_STAGE_1, false);
@@ -2231,11 +2283,18 @@ bool LawnApp::IsNight()
 
 int LawnApp::GetCurrentChallengeIndex()
 {
+	if (PvzpCustomLevels::IsMode(this)) return -1; // not a profile record slot
 	return static_cast<int>(mGameMode) - static_cast<int>(GameMode::GAMEMODE_SURVIVAL_NORMAL_STAGE_1);
 }
 
 const ChallengeDefinition& LawnApp::GetCurrentChallengeDef()
 {
+	if (PvzpCustomLevels::IsMode(this))
+	{
+		static const ChallengeDefinition custom{GameMode::GAMEMODE_MOD_LEVEL, 0,
+			ChallengePage::CHALLENGE_PAGE_CHALLENGE, 0, 0, "Custom Levels"};
+		return custom;
+	}
 	return GetChallengeDefinition(GetCurrentChallengeIndex());
 }
 
@@ -2307,6 +2366,7 @@ SeedType LawnApp::GetAwardSeedForLevel(int theLevel)
 
 int LawnApp::GetSeedsAvailable()
 {
+	if (PvzpCustomLevels::IsMode(this)) return 49; // sandbox ownership, no profile writes
 	int aLevel = mPlayerInfo->GetLevel();
 	if (HasFinishedAdventure() || aLevel > 50)
 	{
@@ -2319,6 +2379,9 @@ int LawnApp::GetSeedsAvailable()
 
 bool LawnApp::HasSeedType(SeedType theSeedType)
 {
+	if (PvzpCustomLevels::IsMode(this))
+		return (theSeedType >= SEED_PEASHOOTER && theSeedType <= SEED_IMITATER) ||
+			(PvzpCustomPlants::IsCustom(theSeedType) && PvzpCustomPlants::IsSlotUsed(theSeedType));
 	if (IsTrialStageLocked() && theSeedType >= SeedType::SEED_JALAPENO)
 		return false;
 
@@ -2473,6 +2536,7 @@ bool LawnApp::CanSpawnYetis()
 
 bool LawnApp::HasBeatenChallenge(GameMode theGameMode)
 {
+	if (theGameMode == GameMode::GAMEMODE_MOD_LEVEL) return false;
 	if (mPlayerInfo == nullptr)
 		return false;
 

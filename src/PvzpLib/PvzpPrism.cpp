@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "PvzpPrism.h"
 #include "PvzpCustomPlants.h"
+#include "PvzpCustomZombies.h"
 #include "../Lawn/Board.h"
 #include "../Lawn/Plant.h"
 #include "../Lawn/Projectile.h"
@@ -83,7 +84,7 @@ void UpdateProjectile(Projectile* p) {
     // Test the ground-projected row, so a melon high in its arc can pass the
     // same field as a straight pea without snapping height/velocity to the ground.
     for(Plant* plant:p->mBoard->mPlants) {
-        if(plant->mDead || plant->mSquished || plant->NotOnGround() || plant->mIsAsleep ||
+        if(plant->mDead || plant->mSquished || plant->NotOnGround() || plant->mIsAsleep || PvzpCustomZombies::PlantFrozen(plant) ||
            !PvzpCustomPlants::IsPrism(plant->mSeedType) || plant->mRow!=p->mRow) continue;
         float field=plant->mX+120.0f;
         if(p->mPosX<field-48.0f || p->mPosX>field+48.0f) continue;
@@ -106,8 +107,7 @@ void BeforeImpact(Projectile* p,Zombie* z) {
     State* s=Find(p); if(!s || !z || !(s->flags&PIERCE)) return;
     s->hits.insert(uint32_t(p->mBoard->ZombieGetID(z)));
     if(s->flags&FROST) {
-        z->HitIceTrap();
-        z->mIceTrapCounter=std::min(z->mIceTrapCounter,100);
+        PvzpCustomZombies::FreezeZombie(z,100);
     }
     if(s->flags&FIRE) {
         // Additional energy burn uses normal damage routing (helm/shield/traits)

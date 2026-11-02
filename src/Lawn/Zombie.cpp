@@ -34,6 +34,7 @@
 #include "../LawnApp.h"
 #include "PvzpLib/PvzpMod.h"
 #include "PvzpLib/PvzpCustomPlants.h"
+#include "PvzpLib/PvzpCustomZombies.h"
 #include "../Resources.h"
 #include "System/PlayerInfo.h"
 #include "System/Zombatar.h"
@@ -73,6 +74,12 @@ constexpr const float CHILLED_SPEED_FACTOR = 0.4f;
 constexpr const float CLIP_HEIGHT_LIMIT = -100.0f;
 constexpr const float CLIP_HEIGHT_OFF = -200.0f;
 constexpr Color ZOMBIE_MINDCONTROLLED_COLOR = Color(128, 64, 192, 255);
+
+static int ZombieModInt(const Zombie* zombie, const char* field, int fallback)
+{
+	return PvzpCustomZombies::Int(zombie, field,
+		PvzpMod::ZombieInt(GetZombieDefinition(zombie->mZombieType).mZombieName, field, fallback));
+}
 
 static std::string ZombatarTrackName(const char* thePrefix, int theIndex)
 {
@@ -4162,7 +4169,7 @@ void Zombie::UpdateZombieWalking()
 
 		// Apply once to actual displacement, not mVelX (which is recalculated by
 		// phase changes and sometimes driven by the animation's ground track).
-		aSpeed *= PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "speedPercent", 100) / 100.0f;
+		aSpeed *= ZombieModInt(this, "speedPercent", 100) / 100.0f;
 		if (IsWalkingBackwards() || mZombiePhase == ZombiePhase::PHASE_DANCER_DANCING_IN)
 		{
 			mPosX += aSpeed;
@@ -5698,9 +5705,9 @@ void Zombie::DrawReanim(Graphics* g, const ZombieDrawPosition& theDrawPos, int t
 	}
 
 	const char* aModName = GetZombieDefinition(mZombieType).mZombieName;
-	Color aColorOverride(PvzpMod::ZombieInt(aModName, "tintR", 255),
-		PvzpMod::ZombieInt(aModName, "tintG", 255),
-		PvzpMod::ZombieInt(aModName, "tintB", 255), aFadeAlpha);
+	Color aColorOverride(ZombieModInt(this, "tintR", 255),
+		ZombieModInt(this, "tintG", 255),
+		ZombieModInt(this, "tintB", 255), aFadeAlpha);
 	Color aExtraAdditiveColor = Color::Black;
 	bool aEnableExtraAdditiveDraw = false;
 	if (mZombiePhase == ZombiePhase::PHASE_ZOMBIE_BURNED)
@@ -6323,6 +6330,7 @@ void Zombie::Draw(Graphics* g)
 
 	ZombieDrawPosition aDrawPos;
 	GetDrawPos(aDrawPos);
+	PvzpCustomZombies::PrepareVisuals(this);
 
 	if (mApp->mGameScene == GameScenes::SCENE_ZOMBIES_WON && !SetupDrawZombieWon(g))
 		return;
@@ -6342,6 +6350,7 @@ void Zombie::Draw(Graphics* g)
 			//DrawZombie(g, aDrawPos);
 		}
 	}
+	PvzpCustomZombies::Draw(g, this);
 	if (mIceTrapCounter > 0)
 	{
 		DrawIceTrap(g, aDrawPos, true);
@@ -7115,7 +7124,7 @@ void Zombie::EatPlant(Plant* thePlant)
 	if (mChilledCounter > 0 && mZombieAge % 2 == 1)
 		return;
 
-	const int aBiteDamage = std::max(1, DAMAGE_PER_EAT * PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "damagePercent", 100) / 100);
+	const int aBiteDamage = std::max(1, DAMAGE_PER_EAT * ZombieModInt(this, "damagePercent", 100) / 100);
 	if (mApp->IsIZombieLevel() && thePlant->mSeedType == SeedType::SEED_SUNFLOWER)
 	{
 		int aStageBeforeChew = thePlant->mPlantHealth / 40;
@@ -7158,7 +7167,7 @@ void Zombie::EatPlant(Plant* thePlant)
 
 void Zombie::EatZombie(Zombie* theZombie)
 {
-	theZombie->TakeDamage(std::max(1, DAMAGE_PER_EAT * PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "damagePercent", 100) / 100), 9U);
+	theZombie->TakeDamage(std::max(1, DAMAGE_PER_EAT * ZombieModInt(this, "damagePercent", 100) / 100), 9U);
 	StartEating();
 	if (theZombie->mBodyHealth <= 0)
 	{
@@ -7327,7 +7336,7 @@ void Zombie::DropLoot()
 	// summons and I,Zombie cannot farm the bounty.
 	if (!mMindControlled && !mApp->IsIZombieLevel())
 	{
-		int aBounty = PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "sunDrop", 0);
+		int aBounty = ZombieModInt(this, "sunDrop", 0);
 		while (aBounty >= 25)
 		{
 			mBoard->AddCoin(mX + 30, mY + 20, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_COIN);
@@ -7575,7 +7584,7 @@ void Zombie::ApplyChill(bool theIsIceTrap)
 	{
 		aChillTime = 2000;
 	}
-	aChillTime = std::max(1, aChillTime * (100 - PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "slowResistancePercent", 0)) / 100);
+	aChillTime = std::max(1, aChillTime * (100 - ZombieModInt(this, "slowResistancePercent", 0)) / 100);
 	mChilledCounter = std::max(aChillTime, mChilledCounter);
 
 	UpdateAnimSpeed();
@@ -8076,7 +8085,7 @@ Zombie::~Zombie()
 
 bool Zombie::CanBeChilled()
 {
-	if (PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "slowResistancePercent", 0) >= 100)
+	if (ZombieModInt(this, "slowResistancePercent", 0) >= 100)
 		return false;
 	if (mZombieType == ZombieType::ZOMBIE_ZAMBONI || IsBobsledTeamWithSled())
 		return false;
@@ -8454,7 +8463,7 @@ void Zombie::HitIceTrap()
 		mIceTrapCounter = RandRangeInt(400, 600);
 	}
 
-	mIceTrapCounter = std::max(1, mIceTrapCounter * (100 - PvzpMod::ZombieInt(GetZombieDefinition(mZombieType).mZombieName, "slowResistancePercent", 0)) / 100);
+	mIceTrapCounter = std::max(1, mIceTrapCounter * (100 - ZombieModInt(this, "slowResistancePercent", 0)) / 100);
 	StopZombieSound();
 	if (mZombieType == ZombieType::ZOMBIE_BALLOON)
 	{

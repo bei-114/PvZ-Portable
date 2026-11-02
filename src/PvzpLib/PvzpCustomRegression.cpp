@@ -23,6 +23,7 @@
 #include "../LawnApp.h"
 #include "../GameConstants.h"
 #include "PvzpCustomPlants.h"
+#include "PvzpCustomZombies.h"
 #include "PvzpModTools.h"
 #include "PvzpMod.h"
 #include "Reanimator.h"
@@ -47,6 +48,10 @@ struct CustomTest {
     std::vector<uint32_t> friendly;
     std::vector<float> friendlyX;
     uint32_t aurora = 0, ownRow = 0, otherRow = 0, bounty = 0, partialNut = 0;
+    uint32_t postLoadPlant = 0, postLoadShooter = 0, postLoadGatling = 0;
+    int postLoadHealth = 0, postLoadMainCounter = 0;
+    std::vector<uint32_t> postLoadShots;
+    std::vector<float> postLoadShotX;
 };
 bool Check(CustomTest& t, bool pass, const char* label, int a = 0, int b = 0) {
     ++t.checks;
@@ -63,6 +68,24 @@ void Finish(CustomTest& t, Board* b) {
     if (t.failures) { b->mApp->Shutdown(); std::exit(1); }
     const char* hold = std::getenv("PVZP_CUSTOM_HOLD");
     if (hold && hold[0] == '1' && hold[1] == '\0') {
+        // Screenshot-only fixture, created AFTER every real regression passed.
+        // Never changes gameplay, the asserted board or ordinary test output.
+        if (const char* showcase=std::getenv("PVZP_CUSTOM_SHOWCASE"); showcase && std::string(showcase)=="1") {
+            for (Zombie* z:b->mZombies) if(!z->mDead)z->DieNoLoot();
+            for (Plant* p:b->mPlants) if(!p->mDead)p->Die();
+            for (Projectile* p:b->mProjectiles) if(!p->mDead)p->Die();
+            b->ProcessDeleteQueue(); PvzpCustomZombies::Reset(b);
+            int i=0;
+            for(const auto& c:PvzpMod::CustomZombies()) {
+                int row=i%4; Zombie* z=PvzpCustomZombies::Spawn(b,c.id,row);
+                if(z){z->mPosX=450.0f+150*(i/4);z->mX=int(z->mPosX);z->mIceTrapCounter=0;z->mChilledCounter=0;}
+                if(++i==8)break;
+            }
+            b->AddPlant(1,0,SEED_SUNFLOWER);b->AddPlant(2,1,SEED_CUSTOM_3);
+            b->AddPlant(2,2,SEED_CUSTOM_4);b->AddPlant(1,3,SEED_CUSTOM_0);
+            PvzpLocaleSetLanguage("zh-CN");
+        }
+        b->mPaused=true; b->MarkAllDirty();
         SDL_Log("CTEST HOLD successful settled board retained for screenshot; stop process when finished");
         return;
     }
@@ -219,6 +242,7 @@ void ClearFixture(Board* b) {
     for (Projectile* p : b->mProjectiles) if (!p->mDead) p->Die();
     b->ProcessDeleteQueue();
     PvzpCustomPlants::Reset(b);
+    PvzpCustomZombies::Reset(b);
 }
 bool BountyChecks(CustomTest& t, Board* b) {
     ClearFixture(b);
@@ -290,10 +314,11 @@ bool AuroraFixture(CustomTest& t, Board* b) {
     ClearFixture(b);
     const PvzpMod::CustomPlant* config = nullptr;
     for (const auto& c : PvzpMod::CustomPlants()) if (c.slot == 3) config = &c;
-    if (!Check(t, config && config->interval == 800 && config->health == 1800 &&
-        config->pulseEvents == std::vector<std::string>{"chill:row", "damage:row:100"} &&
-        config->foodEvents == std::vector<std::string>{"chill", "freeze:row", "damage:row:400", "push:row:120", "heal:1800", "sun:100"},
-        "aurora800_row_pulse_and_food_fixture")) return false;
+    if (!Check(t, config && config->cost == 125 && config->interval == 400 && config->health == 8000 && config->step == 400 &&
+        config->events == std::vector<std::string>{"damage:row:600", "heal:1000", "freeze:row", "push:row:120"} &&
+        config->pulseEvents == std::vector<std::string>{"chill:row", "freeze:row", "damage:row:300", "push:row:30"} &&
+        config->foodEvents == std::vector<std::string>{"chill", "freeze:row", "damage:row:1800", "push:row:160", "heal:8000", "sun:250"},
+        "aurora400_tank8000_stronger_row_pulse_and_food_fixture")) return false;
     Plant* aurora = b->AddPlant(2, 2, SEED_CUSTOM_3);
     Plant* brain = b->AddPlant(4, 3, SEED_CUSTOM_2);
     Plant* partial = b->AddPlant(1, 1, SEED_CUSTOM_0);
@@ -553,6 +578,255 @@ bool PrismEmpowerAndSave(CustomTest& t, Board* b) {
     shot->DoImpact(next);
     Check(t, !shot->mDead && next->mBodyHealth < nextHP && next->mIceTrapCounter > 0 &&
         !PvzpPrism::CanHit(shot, next), "restored_piercing_shot_hits_next_enemy_once_with_damage_and_frost");
+    return true;
+}
+const PvzpMod::CustomZombie* CompositeConfig(std::string_view id) {
+    for (const auto& c : PvzpMod::CustomZombies()) if (c.id == id) return &c;
+    return nullptr;
+}
+Zombie* CompositeEnemy(Board* b, std::string_view id, int row = 2) {
+    Zombie* z = PvzpCustomZombies::Spawn(b, id, row);
+    if (z) {
+        z->mPosX = 650; z->mPosY = z->GetPosYBasedOnRow(row);
+        z->mX = int(z->mPosX); z->mY = int(z->mPosY);
+        z->mZombiePhase = PHASE_ZOMBIE_NORMAL;
+        z->mChilledCounter = z->mIceTrapCounter = z->mButteredCounter = 0;
+        z->mIsEating = false;
+    }
+    return z;
+}
+void CompositeTicks(Board* b, int ticks) {
+    // Deterministic unit ticks for the production sidecar updater only. Never
+    // recursively call Board::Update from this end-of-frame live harness.
+    for (int i = 0; i < ticks; ++i) PvzpCustomZombies::Update(b);
+}
+bool CompositeAbilities(CustomTest& t, Board* b) {
+    ClearFixture(b);
+    if (!Check(t, PvzpMod::CustomZombies().size() == 8 && PvzpMod::CustomLevels().size() == 3 && b->CanUseModTools(),
+        "composite_live_fixture_eight_variants_three_levels_tools_enabled")) return false;
+    for (const auto& c : PvzpMod::CustomZombies()) {
+        Zombie* z = CompositeEnemy(b, c.id);
+        if (!Check(t, z && z->mZombieType == ZOMBIE_NORMAL && PvzpCustomZombies::Id(z) == c.id &&
+            PvzpCustomZombies::Name(z) == c.name && z->mBodyHealth == c.health && z->mBodyMaxHealth == c.health &&
+            (c.armor == 0 || (z->mHelmHealth == c.armor && z->mHelmMaxHealth == c.armor)) &&
+            PvzpCustomZombies::Int(z, "speedPercent", -1) == c.speedPercent &&
+            PvzpCustomZombies::Int(z, "damagePercent", -1) == c.damagePercent &&
+            PvzpCustomZombies::Int(z, "slowResistancePercent", -1) == c.slowResistancePercent &&
+            PvzpCustomZombies::Int(z, "sunDrop", -1) == c.sunDrop &&
+            PvzpCustomZombies::Int(z, "tintR", -1) == c.tintR && PvzpCustomZombies::Int(z, "tintG", -1) == c.tintG &&
+            PvzpCustomZombies::Int(z, "tintB", -1) == c.tintB && PvzpCustomZombies::Int(z, "unknown-field", -77) == -77,
+            "composite_spawn_by_stable_id_retains_builtin_enum_actual_hp_armor_name_and_effective_stats")) return false;
+    }
+    const int population = LiveZombies(b);
+    Check(t, !PvzpCustomZombies::CanSpawn(b, "pvzp.unknown", 2) && !PvzpCustomZombies::Spawn(b, "pvzp.unknown", 2) &&
+        !PvzpCustomZombies::CanSpawn(b, "pvzp.seed_packet_head", -2) &&
+        !PvzpCustomZombies::CanSpawn(b, "pvzp.seed_packet_head", 6) && LiveZombies(b) == population,
+        "composite_unknown_identity_and_invalid_rows_do_not_spawn_or_mutate_population");
+
+    ClearFixture(b);
+    const auto* jam = CompositeConfig("pvzp.seed_packet_head");
+    Zombie* saboteur = CompositeEnemy(b, "pvzp.seed_packet_head");
+    if (!Check(t, jam && saboteur && b->mSeedBank->mNumPackets >= 2, "composite_seed_jam_fixture")) return false;
+    auto& firstPacket = b->mSeedBank->mSeedPackets[0];
+    auto& secondPacket = b->mSeedBank->mSeedPackets[1];
+    firstPacket.SetPacketType(SEED_PEASHOOTER, SEED_NONE);
+    secondPacket.SetPacketType(SEED_SUNFLOWER, SEED_NONE);
+    CompositeTicks(b, jam->interval - 1);
+    Check(t, firstPacket.mActive && !firstPacket.mRefreshing, "seed_jam_no_early_effect_before_exact_interval");
+    const auto beforePause = PvzpCustomZombies::Save(b);
+    b->Pause(true); CompositeTicks(b, 20); b->Pause(false);
+    Check(t, PvzpCustomZombies::Save(b) == beforePause && firstPacket.mActive,
+        "paused_composite_update_does_not_advance_cooldown_or_mutate_seed_bank");
+    CompositeTicks(b, 1);
+    Check(t, firstPacket.mRefreshing && !firstPacket.mActive && firstPacket.mRefreshCounter == 0 &&
+        firstPacket.mRefreshTime == jam->magnitude && secondPacket.mActive,
+        "seed_jam_exact_interval_delays_one_real_ready_packet_by_configured200_ticks");
+    CompositeTicks(b, jam->interval);
+    Check(t, secondPacket.mRefreshing && !secondPacket.mActive && secondPacket.mRefreshTime == jam->magnitude &&
+        firstPacket.mRefreshCounter == 0, "seed_jam_next_interval_advances_to_second_packet_without_double_jamming_first");
+    ClearFixture(b);
+    saboteur = CompositeEnemy(b, "pvzp.seed_packet_head");
+    if (!Check(t, saboteur != nullptr, "seed_jam_refreshing_packet_fixture")) return false;
+    firstPacket.mRefreshing = true; firstPacket.mActive = false;
+    firstPacket.mRefreshTime = 1000; firstPacket.mRefreshCounter = 350;
+    saboteur->mIceTrapCounter = 1;
+    CompositeTicks(b, jam->interval);
+    Check(t, firstPacket.mRefreshCounter == 350, "ice_trapped_saboteur_cannot_advance_or_jam_refreshing_packet");
+    saboteur->mIceTrapCounter = 0;
+    CompositeTicks(b, jam->interval);
+    Check(t, firstPacket.mRefreshCounter == 150 && firstPacket.mRefreshTime == 1000,
+        "unfrozen_saboteur_subtracts200_existing_recharge_progress_without_replacing_recharge_length");
+
+    ClearFixture(b);
+    const auto* raise = CompositeConfig("pvzp.tombstone_head");
+    Zombie* summoner = CompositeEnemy(b, "pvzp.tombstone_head");
+    if (!Check(t, raise && summoner, "composite_tombstone_summoner_fixture")) return false;
+    CompositeTicks(b, raise->interval - 1);
+    Check(t, LiveZombies(b) == 1, "tombstone_no_early_summon_before_interval");
+    CompositeTicks(b, 1);
+    Check(t, LiveZombies(b) == 3, "tombstone_exact_interval_spawns_two_real_normal_minions");
+    CompositeTicks(b, raise->interval * 2);
+    Check(t, LiveZombies(b) == 7, "tombstone_three_activations_spawn_exactly_six_minions");
+    CompositeTicks(b, raise->interval * 2);
+    Check(t, LiveZombies(b) == 7, "tombstone_lifetime_cap_prevents_fourth_and_fifth_activation_growth");
+    ClearFixture(b);
+    summoner = CompositeEnemy(b, "pvzp.tombstone_head");
+    if (!Check(t, summoner != nullptr, "friendly_tombstone_fixture")) return false;
+    summoner->StartMindControlled();
+    CompositeTicks(b, raise->interval);
+    bool charmed = LiveZombies(b) == 3;
+    for (Zombie* z : b->mZombies) if (!z->mDead) charmed = charmed && z->mMindControlled;
+    Check(t, charmed, "mindcontrolled_tombstone_raises_same_faction_minions_not_hostile_zombies");
+
+    ClearFixture(b);
+    const auto* heal = CompositeConfig("pvzp.sunflower_head");
+    Zombie* medic = CompositeEnemy(b, "pvzp.sunflower_head");
+    Zombie* near = Enemy(b, ZOMBIE_NORMAL, 3);
+    Zombie* far = Enemy(b, ZOMBIE_NORMAL, 4);
+    Zombie* hostileFaction = Enemy(b, ZOMBIE_NORMAL, 2);
+    if (!Check(t, heal && medic && near && far && hostileFaction, "composite_medic_range_faction_fixture")) return false;
+    for (Zombie* z : {near, far, hostileFaction}) { z->mBodyMaxHealth = 2000; z->mBodyHealth = 1000; }
+    hostileFaction->StartMindControlled(); medic->mBodyHealth -= 200;
+    const int medicHP = medic->mBodyHealth;
+    CompositeTicks(b, heal->interval - 1);
+    Check(t, near->mBodyHealth == 1000 && medic->mBodyHealth == medicHP, "medic_does_not_heal_before_interval");
+    CompositeTicks(b, 1);
+    Check(t, near->mBodyHealth == 1100 && medic->mBodyHealth == medicHP + 100 &&
+        far->mBodyHealth == 1000 && hostileFaction->mBodyHealth == 1000,
+        "sunflower_medic_heals100_self_and_near_adjacent_row_allies_but_not_far_row_or_opposite_faction");
+    near->mBodyHealth = near->mBodyMaxHealth - 20;
+    CompositeTicks(b, heal->interval);
+    Check(t, near->mBodyHealth == near->mBodyMaxHealth, "sunflower_medic_healing_clamps_to_actual_max_health");
+
+    ClearFixture(b);
+    const auto* bite = CompositeConfig("pvzp.chomper_head");
+    Plant* victim = b->AddPlant(3, 2, SEED_WALLNUT);
+    Plant* otherRow = b->AddPlant(3, 3, SEED_WALLNUT);
+    Zombie* chomper = CompositeEnemy(b, "pvzp.chomper_head");
+    if (!Check(t, bite && victim && otherRow && chomper, "composite_chomper_target_fixture")) return false;
+    victim->mPlantHealth = victim->mPlantMaxHealth = 10000;
+    const int otherHP = otherRow->mPlantHealth;
+    chomper->mPosX = float(victim->mX + 80); chomper->mX = int(chomper->mPosX);
+    chomper->mBodyHealth -= 200;
+    const int beforeBite = chomper->mBodyHealth;
+    CompositeTicks(b, bite->interval);
+    Check(t, victim->mPlantHealth == 9500 && otherRow->mPlantHealth == otherHP &&
+        chomper->mBodyHealth == beforeBite + 125 && victim->mEatenFlashCountdown > 0,
+        "chomper_ability_deals500_to_real_near_row_plant_and_lifesteals125_without_other_row_damage");
+    return true;
+}
+bool CompositeProjectileAndSave(CustomTest& t, Board* b) {
+    for (const char* id : {"pvzp.firepea_head", "pvzp.melon_head", "pvzp.gatling_head", "pvzp.snowpea_head"}) {
+        ClearFixture(b);
+        const auto* c = CompositeConfig(id);
+        Zombie* shooter = CompositeEnemy(b, id);
+        Plant* target = b->AddPlant(2, 2, SEED_PEASHOOTER);
+        Plant* neighbor = b->AddPlant(3, 2, SEED_WALLNUT);
+        Plant* other = b->AddPlant(2, 3, SEED_WALLNUT);
+        if (!Check(t, c && shooter && target && neighbor && other, "composite_shooter_real_plant_targets_fixture")) return false;
+        for (Plant* p : {target, neighbor, other}) p->mPlantHealth = p->mPlantMaxHealth = 10000;
+        CompositeTicks(b, c->interval - 1);
+        Check(t, Projectiles(b) == 0, "composite_shooter_no_early_projectile_before_configured_interval");
+        CompositeTicks(b, 1);
+        Projectile* shot = nullptr;
+        for (Projectile* p : b->mProjectiles) if (!p->mDead) shot = p;
+        if (!Check(t, Projectiles(b) == 1 && shot && shot->mProjectileType == PROJECTILE_ZOMBIE_PEA &&
+            shot->mMotionType == MOTION_BACKWARDS, "composite_shooter_exact_interval_emits_one_real_hostile_backwards_projectile")) return false;
+        const auto inFlight = PvzpCustomZombies::Save(b);
+        Check(t, PvzpCustomZombies::Load(b, inFlight) && PvzpCustomZombies::Load(b, inFlight) &&
+            PvzpCustomZombies::Save(b) == inFlight, "composite_actor_and_inflight_projectile_sidecars_repeat_load_exactly_without_firing_again");
+        const Rect rect = target->GetPlantRect();
+        shot->mPosX = float(rect.mX + rect.mWidth / 2); shot->mPosY = float(rect.mY + 10); shot->mPosZ = 0;
+        shot->mX = int(shot->mPosX); shot->mY = int(shot->mPosY);
+        if (!Check(t, shot->FindCollisionTargetPlant() == target, "composite_shot_overlaps_intended_real_plant_collision_rect")) return false;
+        shot->CheckForCollision();
+        const bool ice = c->ability == "shoot_ice", melon = c->ability == "shoot_melon";
+        Check(t, shot->mDead && target->mPlantHealth == 10000 - c->magnitude &&
+            neighbor->mPlantHealth == 10000 - (melon ? c->magnitude / 2 : 0) && other->mPlantHealth == 10000 &&
+            PvzpCustomZombies::PlantFrozen(target) == ice,
+            "composite_actual_projectile_collision_applies_configured_damage_melon_neighbor_splash_or_ice_freeze_only");
+        if (!ice) continue;
+
+        // Keep a live second shooter/projectile plus a partly elapsed frozen
+        // plant in the same portable save, exercising all three sidecar maps.
+        Zombie* gatling = CompositeEnemy(b, "pvzp.gatling_head", 3);
+        const auto* gatlingConfig = CompositeConfig("pvzp.gatling_head");
+        if (!Check(t, gatling && gatlingConfig, "composite_portable_second_shooter_fixture")) return false;
+        CompositeTicks(b, gatlingConfig->interval); // ice freeze:150 ->75
+        const uint32_t targetID = b->mPlants.DataArrayGetID(target), shooterID = b->mZombies.DataArrayGetID(shooter);
+        const uint32_t gatlingID = b->mZombies.DataArrayGetID(gatling);
+        uint32_t shotID = 0;
+        for (Projectile* p : b->mProjectiles) if (!p->mDead) shotID = b->mProjectiles.DataArrayGetID(p);
+        target->mLaunchCounter = 123;
+        const int hp = target->mPlantHealth;
+        target->Update();
+        Check(t, PvzpCustomZombies::PlantFrozen(target) && target->mLaunchCounter == 123 &&
+            target->mPlantHealth == hp && Projectiles(b) == 1,
+            "real_frozen_plant_update_suppresses_ability_timer_while_inflight_second_shot_exists");
+        const auto state = PvzpCustomZombies::Save(b);
+        PvzpCustomZombies::Reset(b);
+        Check(t, !PvzpCustomZombies::PlantFrozen(target) && PvzpCustomZombies::Id(shooter).empty(),
+            "composite_reset_removes_actor_and_frozen_maps_without_deleting_engine_entities");
+        if (!Check(t, PvzpCustomZombies::Load(b, state) && PvzpCustomZombies::PlantFrozen(target) &&
+            PvzpCustomZombies::Id(shooter) == "pvzp.snowpea_head" && PvzpCustomZombies::Save(b) == state,
+            "composite_sidecar_restores_actor_frozen_and_pending_projectile_maps_atomically")) return false;
+        auto set32 = [](std::vector<uint8_t>& bytes, size_t at, uint32_t value) {
+            if (at + 4 > bytes.size()) return;
+            for (int i = 0; i < 4; ++i) bytes[at + i] = uint8_t(value >> (i * 8));
+        };
+        auto get32 = [&](size_t at) {
+            uint32_t value = 0;
+            if (at + 4 <= state.size()) for (int i = 0; i < 4; ++i) value |= uint32_t(state[at + i]) << (i * 8);
+            return value;
+        };
+        size_t frozenAt = 8;
+        for (uint32_t i = 0; i < get32(4); ++i) frozenAt += 4 + 4 + get32(frozenAt + 4) + 12;
+        const size_t shotAt = frozenAt + 4 + size_t(get32(frozenAt)) * 8;
+        if (!Check(t, get32(4) == 2 && get32(frozenAt) == 1 && get32(shotAt) == 1 &&
+            shotAt + 20 <= state.size(), "composite_saved_fixture_contains_two_actors_one_frozen_plant_one_live_shot")) return false;
+        auto rejected = [&](const std::vector<uint8_t>& bytes, const char* label) {
+            Check(t, !PvzpCustomZombies::Load(b, bytes) && PvzpCustomZombies::Save(b) == state &&
+                PvzpCustomZombies::PlantFrozen(target) && target->mPlantHealth == hp &&
+                PvzpCustomZombies::Id(shooter) == "pvzp.snowpea_head", label);
+        };
+        auto bad = state; bad.pop_back(); rejected(bad, "composite_truncated_save_rejected_without_actor_frozen_or_shot_mutation");
+        bad = state; bad.push_back(0); rejected(bad, "composite_trailing_save_byte_rejected_without_mutation");
+        bad = state; set32(bad, 0, 2); rejected(bad, "composite_unknown_save_version_rejected_without_mutation");
+        bad = state; set32(bad, 8, 0xFFFFFFFFU); rejected(bad, "composite_stale_actor_id_rejected_without_mutation");
+        bad = state; set32(bad, frozenAt + 4, 0xFFFFFFFFU); rejected(bad, "composite_stale_frozen_plant_id_rejected_without_mutation");
+        bad = state; set32(bad, frozenAt + 8, 0); rejected(bad, "composite_zero_frozen_duration_rejected_without_mutation");
+        bad = state; set32(bad, frozenAt + 8, 60001); rejected(bad, "composite_oversized_frozen_duration_rejected_without_mutation");
+        bad = state; set32(bad, shotAt + 8, 0); rejected(bad, "composite_zero_projectile_damage_rejected_without_mutation");
+        bad = state; set32(bad, shotAt + 12, 60001); rejected(bad, "composite_oversized_projectile_freeze_rejected_without_mutation");
+        bad = state;
+        const std::vector<uint8_t> duplicate(state.begin() + frozenAt + 4, state.begin() + frozenAt + 12);
+        bad.insert(bad.begin() + frozenAt + 12, duplicate.begin(), duplicate.end()); set32(bad, frozenAt, 2);
+        rejected(bad, "composite_duplicate_frozen_plant_record_rejected_without_mutation");
+        const char* home = std::getenv("HOME");
+        if (!Check(t, home && *home, "composite_portable_disposable_home")) return false;
+        const std::string path = std::string(home) + "/pvzp-composite-regression.dat";
+        if (!Check(t, LawnSaveGame(b, path), "composite_full_portable_save_actor_frozen_map_and_inflight_projectile")) return false;
+        PvzpCustomZombies::Reset(b);
+        if (!Check(t, b->LoadGame(path), "composite_full_portable_load_at_end_of_board_update")) return false;
+        target = b->mPlants.DataArrayTryToGet(targetID); shooter = b->mZombies.DataArrayTryToGet(shooterID);
+        gatling = b->mZombies.DataArrayTryToGet(gatlingID); Projectile* pending = b->mProjectiles.DataArrayTryToGet(shotID);
+        if (!Check(t, target && shooter && gatling && pending && !pending->mDead && target->mPlantHealth == hp &&
+            PvzpCustomZombies::PlantFrozen(target) && PvzpCustomZombies::Id(shooter) == "pvzp.snowpea_head" &&
+            PvzpCustomZombies::Id(gatling) == "pvzp.gatling_head" && PvzpCustomZombies::Save(b) == state,
+            "portable_roundtrip_preserves_real_variant_ids_cooldowns_frozen_plant_and_pending_shot_exactly")) return false;
+        CompositeTicks(b, 74);
+        target->Update();
+        Check(t, PvzpCustomZombies::PlantFrozen(target) && target->mLaunchCounter == 123,
+            "portable_restored75tick_freeze_still_blocks_actual_plant_after74_ticks");
+        CompositeTicks(b, 1);
+        target->Update();
+        Check(t, !PvzpCustomZombies::PlantFrozen(target) && target->mLaunchCounter < 123,
+            "portable_restored_freeze_expires_on75th_tick_and_real_plant_ability_timer_resumes");
+        t.postLoadPlant = targetID; t.postLoadShooter = shooterID; t.postLoadGatling = gatlingID;
+        t.postLoadHealth = target->mPlantHealth; t.postLoadMainCounter = b->mMainCounter;
+        t.postLoadShots = ProjectileIDs(b); t.postLoadShotX.clear();
+        for (uint32_t id : t.postLoadShots) t.postLoadShotX.push_back(b->mProjectiles.DataArrayTryToGet(id)->mPosX);
+    }
     return true;
 }
 bool LocaleAndAlmanacChecks(CustomTest& t, Board* b) {
@@ -839,19 +1113,34 @@ void PvzpRunCustomRegression(Board* b) {
         if (!aurora || !own || !other || aurora->mDead || own->mDead || other->mDead) {
             Check(t, false, "aurora_live_fixture_disappeared"); Finish(t, b); return;
         }
-        if (t.phaseTicks == 400) {
+        if (t.phaseTicks == 200) {
             if (!Check(t, own->mChilledCounter == 0 && other->mChilledCounter == 0,
                 "aurora_no_early_pulse_before_portable_midinterval_save") ||
                 !PortableRoundtrip(t, b)) { Finish(t, b); return; }
             return; // Every pointer above became stale during the import.
         }
-        if (t.phaseTicks == 799)
-            Check(t, own->mChilledCounter == 0 && other->mChilledCounter == 0,
-                "aurora_799_real_board_updates_no_early_chill_after_load");
-        if (t.phaseTicks < 800) return;
+        if (t.phaseTicks == 399) {
+            Check(t, own->mChilledCounter == 0 && other->mChilledCounter == 0 &&
+                own->mBodyHealth == 10000 && other->mBodyHealth == 10000 && own->mPosX == 650,
+                "aurora_399_real_updates_no_early_chill_damage_or_push_after_save200_load");
+            // Test a FRESH pulse freeze without asking production code to shorten
+            // this fixture's artificial 100000-tick stationary freeze. One short
+            // butter hold prevents a walking displacement before the next pulse.
+            own->mIceTrapCounter = 0;
+            own->mButteredCounter = 2;
+        }
+        if (t.phaseTicks < 400) return;
         Check(t, own->mChilledCounter > 0 && other->mChilledCounter == 0,
-            "aurora_800th_real_board_update_chills_own_row_only_after_load",
+            "aurora_400th_real_board_update_chills_own_row_only_after_load",
             own->mChilledCounter, other->mChilledCounter);
+        Check(t, own->mBodyHealth == 9700 && other->mBodyHealth == 10000,
+            "aurora400_pulse_deals300_actual_body_damage_only_in_own_row", own->mBodyHealth, other->mBodyHealth);
+        Check(t, own->mPosX == 680 && own->mX == 680 && other->mPosX == 650,
+            "aurora400_pulse_pushes_own_row30_with_synced_position", own->mX, other->mX);
+        Check(t, own->mIceTrapCounter > 0 && own->mIceTrapCounter <= 120 && other->mIceTrapCounter > 120,
+            "aurora400_pulse_applies_bounded120_freeze_only_to_own_row", own->mIceTrapCounter, other->mIceTrapCounter);
+        const int ownBeforeFood = own->mBodyHealth, otherBeforeFood = other->mBodyHealth;
+        const float ownXBeforeFood = own->mPosX, otherXBeforeFood = other->mPosX;
         const int money = b->mSunMoney;
         b->mPlantFoodCount = 3;
         BoardClick(b, b->GetPlantFoodRect());
@@ -861,9 +1150,15 @@ void PvzpRunCustomRegression(Board* b) {
         for (Zombie* z : b->mZombies)
             if (!z->mDead && !z->mMindControlled) allChilled = allChilled && z->mChilledCounter > 0;
         Check(t, selected && b->mPlantFoodCount == 2 && !b->mPlantFoodSelecting && allChilled &&
-            aurora->mPlantHealth == aurora->mPlantMaxHealth && b->mSunMoney == money + 100,
-            "aurora_real_food_all_row_chill_full_heal_100_sun_consumes_one",
+            aurora->mPlantHealth == 8000 && aurora->mPlantHealth == aurora->mPlantMaxHealth && b->mSunMoney == money + 250,
+            "aurora_real_food_all_row_chill_full8000_heal_250_sun_consumes_one",
             aurora->mPlantHealth, b->mSunMoney - money);
+        Check(t, !own->mDead && own->mBodyHealth == ownBeforeFood - 1800 && other->mBodyHealth == otherBeforeFood,
+            "aurora_food_deals1800_actual_own_row_damage_without_killing10000hp_target", own->mBodyHealth, other->mBodyHealth);
+        Check(t, own->mPosX == ownXBeforeFood + 160 && own->mX == int(own->mPosX) && other->mPosX == otherXBeforeFood,
+            "aurora_food_pushes_own_row160_and_preserves_other_row_position", own->mX, other->mX);
+        Check(t, own->mIceTrapCounter > 0 && own->mIceTrapCounter <= 120,
+            "aurora_food_reapplies_real_bounded_row_freeze", own->mIceTrapCounter);
         t.phase = 5;
         t.phaseTicks = 0;
         return;
@@ -872,7 +1167,35 @@ void PvzpRunCustomRegression(Board* b) {
         b->mZombieCountDown = b->mZombieCountDownStart = 100000;
         b->mHugeWaveCountDown = -1;
         if (!NutArtChecks(t, b) || !PrismPacketChecks(t, b) || !PrismSplitChecks(t, b) ||
-            !PrismEmpowerAndSave(t, b) || !LocaleAndAlmanacChecks(t, b)) { Finish(t, b); return; }
+            !PrismEmpowerAndSave(t, b) || !LocaleAndAlmanacChecks(t, b) ||
+            !CompositeAbilities(t, b) || !CompositeProjectileAndSave(t, b)) { Finish(t, b); return; }
+        t.phase = 6;
+        t.phaseTicks = 0;
+        return;
+    }
+    if (t.phase == 6) {
+        b->mZombieCountDown = b->mZombieCountDownStart = 100000;
+        b->mHugeWaveCountDown = -1;
+        // Do not quit in the same frame as portable import: effects, entity
+        // iterators, sidecars and restored particle emitters must survive real
+        // subsequent Board updates (not synchronous unit-update loops).
+        if (t.phaseTicks < 20) return;
+        Plant* target = b->mPlants.DataArrayTryToGet(t.postLoadPlant);
+        Zombie* shooter = b->mZombies.DataArrayTryToGet(t.postLoadShooter);
+        Zombie* gatling = b->mZombies.DataArrayTryToGet(t.postLoadGatling);
+        Check(t, b->mMainCounter >= t.postLoadMainCounter + 20 && target && !target->mDead &&
+            shooter && !shooter->mDead && gatling && !gatling->mDead &&
+            target->mPlantHealth == t.postLoadHealth && !PvzpCustomZombies::PlantFrozen(target) &&
+            PvzpCustomZombies::Id(shooter) == "pvzp.snowpea_head" && PvzpCustomZombies::Id(gatling) == "pvzp.gatling_head",
+            "portable_postload20_natural_board_updates_preserve_live_entity_ids_hp_and_variant_sidecars");
+        bool advanced = t.postLoadShots.size() == 2 && t.postLoadShots.size() == t.postLoadShotX.size() &&
+            Projectiles(b) == int(t.postLoadShots.size());
+        for (size_t i = 0; i < t.postLoadShots.size(); ++i) {
+            Projectile* p = b->mProjectiles.DataArrayTryToGet(t.postLoadShots[i]);
+            advanced = advanced && p && !p->mDead && p->mMotionType == MOTION_BACKWARDS &&
+                p->mPosX < t.postLoadShotX[i] - 60 && p->mPosX > t.postLoadShotX[i] - 75;
+        }
+        Check(t, advanced, "portable_postload20_natural_updates_advance_each_restored_hostile_projectile_without_duplicates_or_early_hits");
         Finish(t, b);
     }
 #else

@@ -30,6 +30,8 @@
 #include "../PvzpLib/PvzpFoley.h"
 #include "../PvzpLib/PvzpDebug.h"
 #include "../PvzpLib/PvzpPrism.h"
+#include "../PvzpLib/PvzpCustomZombies.h"
+#include "../PvzpLib/PvzpCustomPlants.h"
 #include "../PvzpLib/Reanimator.h"
 #include "../PvzpLib/Attachment.h"
 #include "../SexyAppFramework/misc/SexyVector.h"
@@ -295,6 +297,7 @@ constinit const ProjectileDefinition gProjectileDefinition[] = {
 
 Projectile::~Projectile()
 {
+	PvzpCustomZombies::Forget(this);
 	PvzpPrism::Forget(this);
 	gElectricProjectiles.erase(this);
 	AttachmentDie(mAttachmentID);
@@ -329,6 +332,7 @@ bool Projectile::IsElectric() const
 void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, int theRow, ProjectileType theProjectileType)
 {
 	SetElectric(false);
+	PvzpCustomZombies::Forget(this);
 	PvzpPrism::Forget(this);
 	int aGridX = mBoard->PixelToGridXKeepOnBoard(theX, theY);
 	mProjectileType = theProjectileType;
@@ -599,8 +603,15 @@ void Projectile::CheckForCollision()
 		if (aPlant)
 		{
 			const ProjectileDefinition& aProjectileDef = GetProjectileDef();
-			aPlant->mPlantHealth -= aProjectileDef.mDamage;
-			aPlant->mEatenFlashCountdown = std::max(aPlant->mEatenFlashCountdown, 25);
+			if (!PvzpCustomZombies::HitPlant(this, aPlant))
+			{
+				aPlant->mPlantHealth -= aProjectileDef.mDamage;
+				aPlant->mEatenFlashCountdown = std::max(aPlant->mEatenFlashCountdown, 25);
+				// Projectile hits must settle custom damage events too, including
+				// the fatal threshold and exactly zero HP (not only the next bite).
+				PvzpCustomPlants::ObserveDamage(mBoard, aPlant);
+				if (aPlant->mPlantHealth <= 0 && !aPlant->mDead) aPlant->Die();
+			}
 
 			mApp->PlayFoley(FoleyType::FOLEY_SPLAT);
 			mApp->AddPvzpParticle(mPosX - 3.0f, mPosY + 17.0f, mRenderOrder + 1, ParticleEffect::PARTICLE_PEA_SPLAT);
@@ -1406,6 +1417,7 @@ void Projectile::DrawElectric(Graphics* g)
 
 void Projectile::Draw(Graphics* g)
 {
+	if (PvzpCustomZombies::DrawProjectile(g, this)) return;
 	if (IsElectric())
 	{
 		DrawElectric(g);

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.custom-campaign",
+  "name": "Workshop Campaign",
+  "priority": 120,
+  "enabled": true,
+  "customLevels": [
+    {
+      "id":"pvzp.seed_heist","name":"Seed Packet Heist","startingSun":900,
+      "description":"Protect your seed bank. Packet-head saboteurs delay one card at a time; Frost Peas briefly freeze plants. Start with sun producers and prioritize saboteurs.",
+      "waves":[
+        {"delay":3500,"spawns":[{"zombie":"ZOMBIE","count":4}]},
+        {"delay":2500,"spawns":[{"zombie":"pvzp.seed_packet_head","row":2},{"zombie":"CONEHEAD_ZOMBIE","count":3}]},
+        {"delay":2500,"spawns":[{"zombie":"pvzp.snowpea_head","count":2},{"zombie":"ZOMBIE","count":4}]},
+        {"delay":2200,"spawns":[{"zombie":"pvzp.seed_packet_head","count":2},{"zombie":"BUCKETHEAD_ZOMBIE","count":2}]},
+        {"delay":2200,"spawns":[{"zombie":"pvzp.snowpea_head","count":3},{"zombie":"pvzp.seed_packet_head"},{"zombie":"CONEHEAD_ZOMBIE","count":4}]},
+        {"delay":2500,"spawns":[{"zombie":"pvzp.seed_packet_head","count":3},{"zombie":"pvzp.snowpea_head","count":2},{"zombie":"FOOTBALL_ZOMBIE","count":2}]}
+      ]
+    },
+    {
+      "id":"pvzp.grave_orchestra","name":"Graveyard Orchestra","startingSun":1400,
+      "description":"Tombstone heads raise at most six minions each. Sunflower medics heal nearby allies. Eliminate medics and summoners before the crowd grows.",
+      "waves":[
+        {"delay":3500,"spawns":[{"zombie":"pvzp.tombstone_head","row":2},{"zombie":"ZOMBIE","count":4}]},
+        {"delay":2300,"spawns":[{"zombie":"pvzp.sunflower_head","row":2},{"zombie":"CONEHEAD_ZOMBIE","count":5}]},
+        {"delay":2200,"spawns":[{"zombie":"pvzp.tombstone_head","count":2},{"zombie":"pvzp.firepea_head","count":2}]},
+        {"delay":2200,"spawns":[{"zombie":"pvzp.sunflower_head","count":2},{"zombie":"pvzp.snowpea_head","count":3}]},
+        {"delay":2200,"spawns":[{"zombie":"pvzp.tombstone_head","count":3},{"zombie":"BUCKETHEAD_ZOMBIE","count":4}]},
+        {"delay":2200,"spawns":[{"zombie":"pvzp.sunflower_head","count":2},{"zombie":"pvzp.firepea_head","count":3},{"zombie":"pvzp.tombstone_head","count":2}]},
+        {"delay":2600,"spawns":[{"zombie":"pvzp.tombstone_head","count":4},{"zombie":"pvzp.sunflower_head","count":2},{"zombie":"pvzp.firepea_head","count":4}]}
+      ]
+    },
+    {
+      "id":"pvzp.botanical_siege","name":"Botanical Siege","startingSun":2200,
+      "description":"A hard mixed assault. Gatling heads fire rapidly; melon heads hit a target and adjacent plants; Chompers punish weak front lines. Prism fields and Aurora tanks are recommended.",
+      "waves":[
+        {"delay":4000,"spawns":[{"zombie":"pvzp.chomper_head","count":2},{"zombie":"CONEHEAD_ZOMBIE","count":4}]},
+        {"delay":2200,"spawns":[{"zombie":"pvzp.melon_head","count":2},{"zombie":"pvzp.firepea_head","count":2}]},
+        {"delay":2200,"spawns":[{"zombie":"pvzp.gatling_head","row":2},{"zombie":"pvzp.snowpea_head","count":3},{"zombie":"pvzp.sunflower_head"}]},
+        {"delay":2200,"spawns":[{"zombie":"pvzp.chomper_head","count":3},{"zombie":"pvzp.melon_head","count":2},{"zombie":"pvzp.seed_packet_head"}]},
+        {"delay":2200,"spawns":[{"zombie":"pvzp.gatling_head","count":2},{"zombie":"pvzp.tombstone_head","count":2},{"zombie":"pvzp.sunflower_head","count":2}]},
+        {"delay":2200,"spawns":[{"zombie":"pvzp.melon_head","count":3},{"zombie":"pvzp.chomper_head","count":3},{"zombie":"pvzp.seed_packet_head","count":2}]},
+        {"delay":2400,"spawns":[{"zombie":"pvzp.gatling_head","count":3},{"zombie":"pvzp.firepea_head","count":3},{"zombie":"pvzp.sunflower_head","count":2}]},
+        {"delay":2800,"spawns":[{"zombie":"pvzp.gatling_head","count":3},{"zombie":"pvzp.melon_head","count":3},{"zombie":"pvzp.chomper_head","count":3},{"zombie":"pvzp.tombstone_head","count":2},{"zombie":"pvzp.sunflower_head","count":2}]}
+      ]
+    }
+  ]
+}

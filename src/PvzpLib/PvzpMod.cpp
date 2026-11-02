@@ -11,11 +11,13 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <initializer_list>
 #include <cmath>
 #include <charconv>
 #include <set>
 #include <map>
 #include <sstream>
+#include <locale>
 #include <string>
 #include <vector>
 
@@ -61,7 +63,7 @@ namespace
 
 		void SkipSpace()
 		{
-			while (mPos < mText.size() && std::isspace(static_cast<unsigned char>(mText[mPos])))
+			while (mPos < mText.size() && (mText[mPos]==' '||mText[mPos]=='\t'||mText[mPos]=='\r'||mText[mPos]=='\n'))
 				mPos++;
 		}
 
@@ -134,36 +136,19 @@ namespace
 				while(mPos<mText.size() && std::isdigit(static_cast<unsigned char>(mText[mPos]))) ++mPos;
 				if(begin==mPos)return false;
 			}
-			const char* end=mText.data()+mPos;
-			// The grammar above already validated this token. Avoid
-			// std::from_chars(double): libc++ only exposes it on newer iOS
-			// deployment targets, which broke the iOS build.
-			const char* p=mText.data()+aStart;
-			bool aNegativeValue=false;
-			if(p<end && *p=='-') { aNegativeValue=true; ++p; }
+			// Locale-independent and available on older iOS libc++ versions,
+			// unlike floating-point from_chars. Reject conversion range errors.
+			const std::string token=mText.substr(aStart,mPos-aStart);
+			std::istringstream number(token);
+			number.imbue(std::locale::classic());
 			double value=0;
-			int fracDigits=0;
-			while(p<end && std::isdigit(static_cast<unsigned char>(*p))) value=value*10+(*p++-'0');
-			if(p<end && *p=='.')
-			{
-				++p;
-				while(p<end && std::isdigit(static_cast<unsigned char>(*p))) { value=value*10+(*p++-'0'); ++fracDigits; }
-			}
-			int exponent=0;
-			if(p<end && (*p=='e'||*p=='E'))
-			{
-				++p;bool aNegative=false;
-				if(p<end && (*p=='+'||*p=='-')) { aNegative=*p=='-'; ++p; }
-				while(p<end && std::isdigit(static_cast<unsigned char>(*p)))
-				{
-					if(exponent<10000) exponent=exponent*10+(*p-'0');
-					++p;
-				}
-				if(aNegative) exponent=-exponent;
-			}
-			value*=std::pow(10.0, double(exponent-fracDigits));
-			if(aNegativeValue) value=-value;
-			if(p!=end || !std::isfinite(value)) return false;
+			number>>value;
+			if(number.fail()||number.peek()!=std::char_traits<char>::eof()||!std::isfinite(value))return false;
+			bool nonzeroMantissa=false;
+			for(char ch:token){if(ch=='e'||ch=='E')break;if(ch>='1'&&ch<='9')nonzeroMantissa=true;}
+			// Some streams silently round tiny values to zero. Such a value
+			// must not bypass an integer lower bound (e.g. sunDrop:1e-10000).
+			if(nonzeroMantissa&&(value==0||std::abs(value)<std::numeric_limits<double>::min()))return false;
 			theValue.mType=JsonValue::Type::Number;theValue.mNumber=value;
 			return true;
 		}
@@ -308,10 +293,17 @@ namespace
 
 	/* Snapshot built once before definitions cache; queries remain cheap. */
 	using Map=std::map<std::string,int>;
-	struct Loaded { PvzpMod::ModInfo info; Map plants,zombies,globals; std::vector<PvzpMod::CustomPlant> customs; };
+	struct Loaded {
+		PvzpMod::ModInfo info; Map plants,zombies,globals;
+		std::vector<PvzpMod::CustomPlant> customs;
+		std::vector<PvzpMod::CustomZombie> customZombies;
+		std::vector<PvzpMod::CustomLevel> customLevels;
+	};
 	std::vector<Loaded> gModules;
 	std::vector<PvzpMod::ModInfo> gInfos;
 	std::vector<PvzpMod::CustomPlant> gCustomPlants;
+	std::vector<PvzpMod::CustomZombie> gCustomZombies;
+	std::vector<PvzpMod::CustomLevel> gCustomLevels;
 	// Persistent parse/save diagnostics plus transient effective-rule conflicts.
 	// Rebuild replaces the latter so repeated toggles do not accumulate stale warnings.
 	std::vector<PvzpMod::Diagnostic> gPersistentDiagnostics, gDiagnostics;
@@ -401,6 +393,111 @@ namespace
 		}
 		return true;
 	}
+	bool StableId(const std::string& text,size_t maximum){
+		if(text.empty()||text.size()>maximum)return false;
+		for(unsigned char ch:text)
+			if(!((ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z')||(ch>='0'&&ch<='9')||ch=='_'||ch=='.'||ch=='-'))return false;
+		return true;
+	}
+	bool TextField(const JsonValue& value,std::string& out,size_t maximum,bool description=false){
+		if(value.mType!=JsonValue::Type::String||value.mString.size()>maximum||
+			value.mString.find('\0')!=std::string::npos||!Utf8(value.mString))return false;
+		if(!description){
+			if(value.mString.empty())return false;
+			for(unsigned char ch:value.mString)if(ch<0x20||ch==0x7f)return false;
+		}
+		out=value.mString;return true;
+	}
+	bool ChoiceField(const JsonValue& value,std::string& out,std::initializer_list<std::string_view> choices){
+		if(value.mType!=JsonValue::Type::String)return false;
+		for(auto choice:choices)if(value.mString==choice){out=value.mString;return true;}
+		return false;
+	}
+	bool CustomZombieSection(const JsonValue& value,Loaded& mod,std::string& error){
+		if(value.mType!=JsonValue::Type::Array||value.mArray.size()>64){error="customZombies must be an array (max 64 entries)";return false;}
+		std::set<std::string> ids;
+		for(const auto& entry:value.mArray){
+			if(entry.mType!=JsonValue::Type::Object){error="customZombies entry must be an object";return false;}
+			PvzpMod::CustomZombie c;
+			for(const auto& [key,v]:entry.mObject){
+				bool ok=false;
+				if(key=="id")ok=TextField(v,c.id,96)&&StableId(c.id,96);
+				else if(key=="name")ok=TextField(v,c.name,96);
+				else if(key=="base")ok=ChoiceField(v,c.base,{"ZOMBIE","CONEHEAD_ZOMBIE","BUCKETHEAD_ZOMBIE","FOOTBALL_ZOMBIE","SCREEN_DOOR_ZOMBIE","NEWSPAPER_ZOMBIE"});
+				else if(key=="head")ok=ChoiceField(v,c.head,{"seed_packet","tombstone","pea","snowpea","firepea","sunflower","chomper","melon","gatling"});
+				else if(key=="ability")ok=ChoiceField(v,c.ability,{"none","seed_jam","raise","shoot_ice","shoot_fire","heal","bite","shoot_melon","shoot_pea"});
+				else if(key=="health")ok=Integer(v,1,10000000,c.health);
+				else if(key=="armor")ok=Integer(v,0,10000000,c.armor);
+				else if(key=="interval")ok=Integer(v,50,60000,c.interval);
+				else if(key=="magnitude")ok=Integer(v,1,1000,c.magnitude);
+				else if(key=="speedPercent")ok=Integer(v,25,300,c.speedPercent);
+				else if(key=="damagePercent")ok=Integer(v,25,500,c.damagePercent);
+				else if(key=="slowResistancePercent")ok=Integer(v,0,100,c.slowResistancePercent);
+				else if(key=="sunDrop")ok=Integer(v,0,1000,c.sunDrop);
+				else if(key=="tintR")ok=Integer(v,0,255,c.tintR);
+				else if(key=="tintG")ok=Integer(v,0,255,c.tintG);
+				else if(key=="tintB")ok=Integer(v,0,255,c.tintB);
+				else {error="unknown customZombies field: "+key;return false;}
+				if(!ok){error="invalid customZombies."+key;return false;}
+			}
+			if(c.id.empty()||c.name.empty()||!ids.insert(c.id).second){error="customZombies requires unique id and name";return false;}
+			mod.customZombies.push_back(std::move(c));
+		}
+		return true;
+	}
+	bool CustomLevelSection(const JsonValue& value,Loaded& mod,std::string& error){
+		if(value.mType!=JsonValue::Type::Array||value.mArray.size()>64){error="customLevels must be an array (max 64 entries)";return false;}
+		std::set<std::string> ids;
+		for(const auto& entry:value.mArray){
+			if(entry.mType!=JsonValue::Type::Object){error="customLevels entry must be an object";return false;}
+			PvzpMod::CustomLevel c;
+			for(const auto& [key,v]:entry.mObject){
+				bool ok=false;
+				if(key=="id")ok=TextField(v,c.id,128)&&StableId(c.id,128);
+				else if(key=="name")ok=TextField(v,c.name,128);
+				else if(key=="description")ok=TextField(v,c.description,1024,true);
+				else if(key=="startingSun")ok=Integer(v,0,9990,c.startingSun);
+				else if(key=="waves"){
+					if(v.mType!=JsonValue::Type::Array||v.mArray.empty()||v.mArray.size()>100){error="customLevels.waves must contain 1..100 waves";return false;}
+					for(const auto& wave:v.mArray){
+						if(wave.mType!=JsonValue::Type::Object){error="customLevels wave must be an object";return false;}
+						PvzpMod::CustomWave w;
+						for(const auto& [wk,wv]:wave.mObject){
+							if(wk=="delay"){
+								if(!Integer(wv,1,60000,w.delay)){error="invalid customLevels wave delay";return false;}
+							}else if(wk=="spawns"){
+								if(wv.mType!=JsonValue::Type::Array||wv.mArray.empty()||wv.mArray.size()>50){error="customLevels wave requires 1..50 spawns";return false;}
+								int total=0;
+								for(const auto& spawn:wv.mArray){
+									if(spawn.mType!=JsonValue::Type::Object){error="customLevels spawn must be an object";return false;}
+									PvzpMod::CustomSpawn s;
+									for(const auto& [sk,sv]:spawn.mObject){
+										bool valid=false;
+										// References may resolve in a later enabled mod. Validate
+										// syntax here; runtime CanStart checks the effective registry.
+										if(sk=="zombie")valid=TextField(sv,s.zombie,96)&&StableId(s.zombie,96);
+										else if(sk=="row")valid=Integer(sv,-1,4,s.row);
+										else if(sk=="count")valid=Integer(sv,1,50,s.count);
+										else {error="unknown customLevels spawn field: "+sk;return false;}
+										if(!valid){error="invalid customLevels spawn "+sk;return false;}
+									}
+									if(s.zombie.empty()||(total+=s.count)>50){error="customLevels requires zombie reference and at most 50 zombies per wave";return false;}
+									w.spawns.push_back(std::move(s));
+								}
+							}else {error="unknown customLevels wave field: "+wk;return false;}
+						}
+						if(w.spawns.empty()){error="customLevels wave missing spawns";return false;}
+						c.waves.push_back(std::move(w));
+					}
+					ok=true;
+				}else {error="unknown customLevels field: "+key;return false;}
+				if(!ok){error="invalid customLevels."+key;return false;}
+			}
+			if(c.id.empty()||c.name.empty()||c.waves.empty()||!ids.insert(c.id).second){error="customLevels requires unique id, name and waves";return false;}
+			mod.customLevels.push_back(std::move(c));
+		}
+		return true;
+	}
 	bool Manifest(const std::filesystem::path& file,Loaded& mod,std::string& error){
 		std::error_code ec;
 		const auto bytes=std::filesystem::file_size(file,ec);
@@ -426,6 +523,10 @@ namespace
 				mod.info.enabled=v.mBool;
 			}else if(key=="plants"||key=="zombies"){
 				if(!Section(v,key=="plants",key=="plants"?mod.plants:mod.zombies,error))return false;
+			}else if(key=="customZombies"){
+				if(!CustomZombieSection(v,mod,error))return false;
+			}else if(key=="customLevels"){
+				if(!CustomLevelSection(v,mod,error))return false;
 			}else if(key=="customPlants"){
 				if(v.mType!=JsonValue::Type::Array){error="customPlants must be an array";return false;}
 				std::set<int> slots;
@@ -481,12 +582,30 @@ namespace
 	}
 	void Rebuild(){
 		gPlantValues.clear();gZombieValues.clear();gGlobalValues.clear();gInfos.clear();gCustomPlants.clear();
+		gCustomZombies.clear();gCustomLevels.clear();
 		gDiagnostics=gPersistentDiagnostics;
 		std::map<int,const PvzpMod::ModInfo*> owners;
+		std::map<std::string,const PvzpMod::ModInfo*> zombieOwners,levelOwners;
+		auto mergeRegistry=[&](const auto& entries,auto& effective,auto& registryOwners,const Loaded& m,const char* section){
+			for(const auto& entry:entries){
+				auto it=std::find_if(effective.begin(),effective.end(),[&](const auto& previous){return previous.id==entry.id;});
+				if(it!=effective.end()){
+					const auto* previous=registryOwners.at(entry.id);
+					const std::string message=std::string(section)+" id "+entry.id+" collision: "+
+						m.info.id+" ("+m.info.folder+") overrides "+previous->id+" ("+previous->folder+") by priority/folder order";
+					gDiagnostics.push_back({m.info.folder,message});
+					PvzpLogLn("[mod] {}: {}",m.info.folder,message);
+					*it=entry;
+				}else effective.push_back(entry);
+				registryOwners[entry.id]=&m.info;
+			}
+		};
 		for(const auto& m:gModules){gInfos.push_back(m.info);if(!m.info.enabled)continue;
 			for(const auto& [k,v]:m.plants)gPlantValues[k]=v;
 			for(const auto& [k,v]:m.zombies)gZombieValues[k]=v;
 			for(const auto& [k,v]:m.globals)gGlobalValues[k]=v;
+			mergeRegistry(m.customZombies,gCustomZombies,zombieOwners,m,"customZombies");
+			mergeRegistry(m.customLevels,gCustomLevels,levelOwners,m,"customLevels");
 			for(const auto& c:m.customs){
 				auto it=std::find_if(gCustomPlants.begin(),gCustomPlants.end(),[&](const PvzpMod::CustomPlant& x){return x.slot==c.slot;});
 				if(it!=gCustomPlants.end()){
@@ -549,6 +668,8 @@ namespace PvzpMod {
  const std::vector<ModInfo>& List(){return gInfos;}
  const std::vector<Diagnostic>& Diagnostics(){return gDiagnostics;}
  const std::vector<CustomPlant>& CustomPlants(){return gCustomPlants;}
+ const std::vector<CustomZombie>& CustomZombies(){return gCustomZombies;}
+ const std::vector<CustomLevel>& CustomLevels(){return gCustomLevels;}
  uint64_t RulesFingerprint(){
 	 uint64_t h=14695981039346656037ULL;
 	 auto add=[&](std::string_view s){for(unsigned char c:s){h^=c;h*=1099511628211ULL;}h^=0;h*=1099511628211ULL;};
@@ -572,6 +693,28 @@ namespace PvzpMod {
 			 events("pulseEvents",c->pulseEvents);events("foodEvents",c->foodEvents);
 		 }
 	 }
+	 // Registry order is observable in the tools/campaign menu: first encounter
+	 // fixes the position; a collision replaces the whole entry in that position.
+	 // Wave and spawn order are gameplay rules, never sort them for hashing.
+	 if(!gCustomZombies.empty()){
+		 add("customZombies");add(std::to_string(gCustomZombies.size()));
+		 for(const auto& c:gCustomZombies){
+			 add(c.id);add(c.name);add(c.base);add(c.head);add(c.ability);
+			 for(int n:{c.health,c.armor,c.interval,c.magnitude,c.speedPercent,c.damagePercent,
+				 c.slowResistancePercent,c.sunDrop,c.tintR,c.tintG,c.tintB})add(std::to_string(n));
+		 }
+	 }
+	 if(!gCustomLevels.empty()){
+		 add("customLevels");add(std::to_string(gCustomLevels.size()));
+		 for(const auto& c:gCustomLevels){
+			 add(c.id);add(c.name);add(c.description);add(std::to_string(c.startingSun));
+			 add(std::to_string(c.waves.size()));
+			 for(const auto& w:c.waves){
+				 add("wave");add(std::to_string(w.delay));add(std::to_string(w.spawns.size()));
+				 for(const auto& s:w.spawns){add(s.zombie);add(std::to_string(s.row));add(std::to_string(s.count));}
+			 }
+		 }
+	 }
 	 return h;
  }
  void WarnSavedRules(uint64_t saved){
@@ -580,7 +723,7 @@ namespace PvzpMod {
 	 }
  }
  uint64_t SnapshotRevision(){return gSnapshotRevision;}
- bool HasMods(){return !gPlantValues.empty()||!gZombieValues.empty()||!gGlobalValues.empty()||!gCustomPlants.empty();}
+ bool HasMods(){return !gPlantValues.empty()||!gZombieValues.empty()||!gGlobalValues.empty()||!gCustomPlants.empty()||!gCustomZombies.empty()||!gCustomLevels.empty();}
  int PlantInt(const char* n,const char* f,int def){auto i=gPlantValues.find(MakeKey(n,f));return i==gPlantValues.end()?def:i->second;}
  int ZombieInt(const char* n,const char* f,int def){auto i=gZombieValues.find(MakeKey(n,f));return i==gZombieValues.end()?def:i->second;}
  int GlobalInt(const char* f,int def){auto i=gGlobalValues.find(f?f:"");return i==gGlobalValues.end()?def:i->second;}

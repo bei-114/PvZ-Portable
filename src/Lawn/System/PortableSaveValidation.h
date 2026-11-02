@@ -10,6 +10,8 @@
 // Asset-free validation shared by the portable save loader and regression tests.
 namespace PvzpSave {
 inline constexpr uint32_t SeedLayoutChunk = 0x4D4F4403U;
+inline constexpr uint32_t CustomZombiesChunk = 0x4D4F4405U;
+inline constexpr uint32_t CustomLevelsChunk = 0x4D4F4406U;
 inline constexpr uint32_t StableSeedLayout = 200U;
 inline constexpr size_t MaxBlobBytes = 1024U * 1024U;
 
@@ -89,7 +91,8 @@ inline bool ValidFields(Span fields, uint32_t knownMax, bool knownTail = false) 
 
 inline bool KnownChunk(uint32_t type) {
     return (type >= 1 && type <= 20) ||
-        type == 0x4D4F4401U || type == 0x4D4F4402U || type == SeedLayoutChunk || type == 0x4D4F4404U;
+        type == 0x4D4F4401U || type == 0x4D4F4402U || type == SeedLayoutChunk || type == 0x4D4F4404U ||
+        type == CustomZombiesChunk || type == CustomLevelsChunk;
 }
 struct ChunkView { uint32_t type; Span bytes; };
 

@@ -40,6 +40,7 @@
 #include "../../PvzpLib/PvzpDebug.h"
 #include "../../PvzpLib/PvzpCommon.h"
 #include "../../PvzpLib/PvzpLocale.h"
+#include "../../PvzpLib/PvzpCustomLevels.h"
 #include "graphics/Font.h"
 #include "../../PvzpLib/Reanimator.h"
 #include "../../PvzpLib/PvzpParticle.h"
@@ -57,7 +58,7 @@ constexpr int kZhLabelMargin = 4;
 // Screen-space test for a companion label. Button rectangles are the live
 // hit areas tracked from the selector reanimation, so they follow the menu
 // slide without touching the hit areas themselves.
-bool IsZhLabelRectClear(const Rect& theRect, NewLawnButton* const* theButtons, int theButtonCount,
+bool IsZhLabelRectClear(const Rect& theRect, DialogButton* const* theButtons, int theButtonCount,
 	const NewLawnButton* theSelf, const Rect& theAchievementsRect)
 {
 	if (theRect.mX < kZhLabelMargin || theRect.mY < kZhLabelMargin ||
@@ -71,7 +72,7 @@ bool IsZhLabelRectClear(const Rect& theRect, NewLawnButton* const* theButtons, i
 
 	for (int i = 0; i < theButtonCount; i++)
 	{
-		const NewLawnButton* aButton = theButtons[i];
+		const DialogButton* aButton = theButtons[i];
 		if (aButton == nullptr || aButton == theSelf || !aButton->mVisible)
 			continue;
 		if (theRect.Intersects(Rect(aButton->mX, aButton->mY, aButton->mWidth, aButton->mHeight)))
@@ -91,7 +92,7 @@ void DrawZhCompanionLabel(Graphics* g, std::string_view theText, const Rect& the
 }
 
 void DrawZhSignLabel(Graphics* g, NewLawnButton* theButton, std::string_view theText,
-	NewLawnButton* const* theButtons, int theButtonCount, const Rect& theAchievementsRect,
+	DialogButton* const* theButtons, int theButtonCount, const Rect& theAchievementsRect,
 	Rect* thePlacedLabels, int& thePlacedCount, bool theAllowInside)
 {
 	if (theButton == nullptr || !theButton->mVisible || theButton->mBtnNoDraw)
@@ -354,6 +355,11 @@ GameSelector::GameSelector(LawnApp* theApp)
 	mChangeUserButton->mBtnNoDraw = true;
 	mChangeUserButton->mMouseVisible = false;
 
+	mCustomLevelsButton = MakeButton(GameSelector_CustomLevels, this,
+		PvzpCustomLevels::Text(mApp, "CUSTOM_LEVELS", "Custom Levels", "自定义关卡")).release();
+	mCustomLevelsButton->Resize(24, 270, 220, Sexy::IMAGE_BUTTON_LEFT->mHeight);
+	mCustomLevelsButton->mClip = false;
+
 	mOverlayWidget = new GameSelectorOverlay(this);
 	mOverlayWidget->Resize(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
 
@@ -465,6 +471,7 @@ GameSelector::GameSelector(LawnApp* theApp)
 	AddWidget(mHelpButton);
 	AddWidget(mStoreButton);
 	AddWidget(mAlmanacButton);
+	AddWidget(mCustomLevelsButton);
 	AddWidget(mOverlayWidget);
 }
 
@@ -816,11 +823,11 @@ void GameSelector::DrawOverlay(Graphics* g)
 		constexpr const char* aZombatarLabel = "僵尸制造器";
 		constexpr const char* aAchievementsLabel = "成就";
 
-		NewLawnButton* aButtons[] = {
+		DialogButton* aButtons[] = {
 			mAdventureButton, mMinigameButton, mPuzzleButton, mOptionsButton,
 			mQuitButton, mHelpButton, mStoreButton, mAlmanacButton,
 			mZenGardenButton, mSurvivalButton, mChangeUserButton,
-			mZombatarButton, mAchievementsButton
+			mZombatarButton, mAchievementsButton, mCustomLevelsButton
 		};
 		constexpr int aButtonCount = static_cast<int>(sizeof(aButtons) / sizeof(aButtons[0]));
 		Rect aPlacedLabels[7];
@@ -1082,6 +1089,10 @@ void GameSelector::Update()
 	TrackButton(mChangeUserButton, "woodsign2", 24.0f, 10.0f);
 	TrackButton(mZombatarButton, "woodsign3", 0.f, 0.f);
 	TrackButton(mAchievementsButton, "SelectorScreen_BG_Left", 20.f, 480.f);
+	TrackButton(mCustomLevelsButton, "SelectorScreen_BG_Left", 24.f, 270.f);
+	mCustomLevelsButton->SetLabel(PvzpCustomLevels::Text(mApp, "CUSTOM_LEVELS", "Custom Levels", "自定义关卡"));
+	mCustomLevelsButton->SetDisabled(mStartingGame || mLoading || mSlideCounter > 0 ||
+		mSelectorState != SelectorAnimState::SELECTOR_IDLE || !mApp->mPlayerInfo);
 	aSelectorReanim->SetImageOverride("woodsign2", (mChangeUserButton->mIsOver || mChangeUserButton->mIsDown) ? Sexy::IMAGE_REANIM_SELECTORSCREEN_WOODSIGN2_PRESS : nullptr);
 	aSelectorReanim->SetImageOverride("woodsign3", (mZombatarButton->mIsOver || mZombatarButton->mIsDown) ? Sexy::IMAGE_REANIM_SELECTORSCREEN_WOODSIGN3_PRESS : nullptr);
 }
@@ -1406,6 +1417,10 @@ void GameSelector::ButtonDepress(int theId)
 		break;
 	case GameSelector::GameSelector_Achievements:
 		ShowAchievementsScreen();
+		break;
+	case GameSelector::GameSelector_CustomLevels:
+		if (!mStartingGame && !mLoading && mSelectorState == SelectorAnimState::SELECTOR_IDLE)
+			PvzpCustomLevels::OpenPicker(mApp);
 		break;
 	}
 }

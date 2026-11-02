@@ -8,6 +8,7 @@
 #include "../Resources.h"
 #include "Reanimator.h"
 #include "PvzpPrism.h"
+#include "PvzpCustomZombies.h"
 #include <cmath>
 #include <algorithm>
 #include <charconv>
@@ -29,7 +30,7 @@ const PvzpMod::CustomPlant* Config(SeedType type) {
 }
 bool Live(Board* b, Plant* p) {
     return b && p && p->mBoard == b && !p->mDead && !p->mSquished && p->IsInPlay() &&
-        p->mOnBungeeState == NOT_ON_BUNGEE;
+        p->mOnBungeeState == NOT_ON_BUNGEE && !PvzpCustomZombies::PlantFrozen(p);
 }
 Runtime& State(Board* b, Plant* p) {
     auto& entries = states[b];
@@ -73,8 +74,7 @@ void Event(Board* b, Plant* p, const std::string& event) {
         for(Zombie* z:b->mZombies) {
             if(z->IsDeadOrDying() || z->mMindControlled || z->mRow!=p->mRow) continue;
             if(event=="freeze:row") {
-                z->ApplyChill(true);
-                if(z->CanBeChilled()) { z->HitIceTrap(); z->mIceTrapCounter=std::min(z->mIceTrapCounter,120); }
+                PvzpCustomZombies::FreezeZombie(z,120);
             } else if(event.starts_with("damage:row:")) z->TakeDamage(Number(event,11,10000),0);
             else if(z->mZombieType!=ZOMBIE_BOSS && z->mZombieType!=ZOMBIE_ZAMBONI && z->mZombieType!=ZOMBIE_CATAPULT && z->mZombieType!=ZOMBIE_BOBSLED) {
                 z->mPosX=std::min(950.0f,z->mPosX+Number(event,9,160));z->mX=int(z->mPosX);

@@ -26,7 +26,22 @@ namespace PvzpMod
 		// plant:random, destroy:plant, and supported zombie names.
 		std::vector<std::string> events, badEvents, pulseEvents, foodEvents;
 	};
+	struct CustomZombie {
+		std::string id, name, base = "ZOMBIE", head = "seed_packet", ability = "none";
+		int health = 600, armor = 0, interval = 600, magnitude = 30;
+		int speedPercent = 100, damagePercent = 100, slowResistancePercent = 0, sunDrop = 0;
+		int tintR = 255, tintG = 255, tintB = 255;
+	};
+	struct CustomSpawn { std::string zombie; int row = -1, count = 1; };
+	struct CustomWave { int delay = 800; std::vector<CustomSpawn> spawns; };
+	struct CustomLevel {
+		std::string id, name, description;
+		int startingSun = 300;
+		std::vector<CustomWave> waves;
+	};
 	const std::vector<CustomPlant>& CustomPlants();
+	const std::vector<CustomZombie>& CustomZombies();
+	const std::vector<CustomLevel>& CustomLevels();
 	void Init();
 	// Test tool: resets the mod snapshot. Not a gameplay hot-reload API.
 	bool LoadFromDirectory(const std::filesystem::path& theDirectory);

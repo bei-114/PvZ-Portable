@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "org.pvzp.example.composite-zombies",
+  "name": "Composite Zombie Workshop",
+  "priority": 110,
+  "enabled": true,
+  "customZombies": [
+    {"id":"pvzp.seed_packet_head","name":"Seed Packet Saboteur","head":"seed_packet","ability":"seed_jam","health":850,"armor":1200,"speedPercent":105,"interval":650,"magnitude":200,"sunDrop":125},
+    {"id":"pvzp.tombstone_head","name":"Tombstone Necromancer","head":"tombstone","ability":"raise","health":1000,"armor":2400,"speedPercent":75,"interval":900,"magnitude":1,"sunDrop":200,"tintR":185,"tintG":175,"tintB":220},
+    {"id":"pvzp.snowpea_head","name":"Frost Pea Zombie","head":"snowpea","ability":"shoot_ice","health":650,"speedPercent":100,"interval":240,"magnitude":30,"sunDrop":100,"tintR":150,"tintG":210,"tintB":255},
+    {"id":"pvzp.firepea_head","name":"Ember Pea Zombie","head":"firepea","ability":"shoot_fire","health":800,"armor":150,"speedPercent":105,"interval":220,"magnitude":45,"sunDrop":125,"tintR":255,"tintG":165,"tintB":100},
+    {"id":"pvzp.sunflower_head","name":"Sunflower Medic Zombie","head":"sunflower","ability":"heal","health":950,"speedPercent":90,"interval":300,"magnitude":100,"sunDrop":150,"tintR":255,"tintG":225,"tintB":125},
+    {"id":"pvzp.chomper_head","name":"Chomper Ravager","head":"chomper","ability":"bite","health":1400,"armor":600,"speedPercent":120,"interval":400,"magnitude":500,"sunDrop":175,"tintR":220,"tintG":160,"tintB":255},
+    {"id":"pvzp.melon_head","name":"Melon Mortar Zombie","head":"melon","ability":"shoot_melon","health":1200,"armor":400,"speedPercent":85,"interval":420,"magnitude":120,"sunDrop":175,"tintR":175,"tintG":240,"tintB":150},
+    {"id":"pvzp.gatling_head","name":"Gatling Pea Commando","head":"gatling","ability":"shoot_pea","health":1000,"armor":400,"speedPercent":100,"interval":75,"magnitude":30,"sunDrop":175,"tintR":145,"tintG":215,"tintB":135}
+  ]
+}
