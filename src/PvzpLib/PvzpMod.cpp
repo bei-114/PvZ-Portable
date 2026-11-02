@@ -135,9 +135,35 @@ namespace
 				if(begin==mPos)return false;
 			}
 			const char* end=mText.data()+mPos;
+			// The grammar above already validated this token. Avoid
+			// std::from_chars(double): libc++ only exposes it on newer iOS
+			// deployment targets, which broke the iOS build.
+			const char* p=mText.data()+aStart;
+			bool aNegativeValue=false;
+			if(p<end && *p=='-') { aNegativeValue=true; ++p; }
 			double value=0;
-			auto result=std::from_chars(mText.data()+aStart,end,value,std::chars_format::general);
-			if(result.ec!=std::errc{} || result.ptr!=end || !std::isfinite(value)) return false;
+			int fracDigits=0;
+			while(p<end && std::isdigit(static_cast<unsigned char>(*p))) value=value*10+(*p++-'0');
+			if(p<end && *p=='.')
+			{
+				++p;
+				while(p<end && std::isdigit(static_cast<unsigned char>(*p))) { value=value*10+(*p++-'0'); ++fracDigits; }
+			}
+			int exponent=0;
+			if(p<end && (*p=='e'||*p=='E'))
+			{
+				++p;bool aNegative=false;
+				if(p<end && (*p=='+'||*p=='-')) { aNegative=*p=='-'; ++p; }
+				while(p<end && std::isdigit(static_cast<unsigned char>(*p)))
+				{
+					if(exponent<10000) exponent=exponent*10+(*p-'0');
+					++p;
+				}
+				if(aNegative) exponent=-exponent;
+			}
+			value*=std::pow(10.0, double(exponent-fracDigits));
+			if(aNegativeValue) value=-value;
+			if(p!=end || !std::isfinite(value)) return false;
 			theValue.mType=JsonValue::Type::Number;theValue.mNumber=value;
 			return true;
 		}
