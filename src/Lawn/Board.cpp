@@ -4401,7 +4401,7 @@ void Board::MouseDown(int x, int y, int theClickCount)
 		return;
 	}
 
-	if (theClickCount > 0 && mCursorObject->mCursorType == CursorType::CURSOR_TYPE_NORMAL && !mPlantFoodSelecting)
+	if (theClickCount > 0 && mCursorObject->mCursorType == CursorType::CURSOR_TYPE_NORMAL && !mPlantFoodSelecting && !PvzpModTools::IsActive(this))
 	{
 		int aBrainCol = PixelToGridX(x, y);
 		int aBrainRow = PixelToGridY(x, y);
