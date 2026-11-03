@@ -303,7 +303,7 @@ namespace
 	std::vector<PvzpMod::ModInfo> gInfos;
 	std::vector<PvzpMod::CustomPlant> gCustomPlants;
 	std::vector<PvzpMod::CustomZombie> gCustomZombies;
-	std::vector<PvzpMod::CustomLevel> gCustomLevels;
+	std::vector<PvzpMod::CustomLevel> gCustomLevels, gBundledLevels, gPlayerLevels;
 	// Persistent parse/save diagnostics plus transient effective-rule conflicts.
 	// Rebuild replaces the latter so repeated toggles do not accumulate stale warnings.
 	std::vector<PvzpMod::Diagnostic> gPersistentDiagnostics, gDiagnostics;
@@ -424,8 +424,8 @@ namespace
 				if(key=="id")ok=TextField(v,c.id,96)&&StableId(c.id,96);
 				else if(key=="name")ok=TextField(v,c.name,96);
 				else if(key=="base")ok=ChoiceField(v,c.base,{"ZOMBIE","CONEHEAD_ZOMBIE","BUCKETHEAD_ZOMBIE","FOOTBALL_ZOMBIE","SCREEN_DOOR_ZOMBIE","NEWSPAPER_ZOMBIE"});
-				else if(key=="head")ok=ChoiceField(v,c.head,{"seed_packet","tombstone","pea","snowpea","firepea","sunflower","chomper","melon","gatling"});
-				else if(key=="ability")ok=ChoiceField(v,c.ability,{"none","seed_jam","raise","shoot_ice","shoot_fire","heal","bite","shoot_melon","shoot_pea"});
+				else if(key=="head")ok=ChoiceField(v,c.head,{"seed_packet","tombstone","pea","snowpea","firepea","sunflower","chomper","melon","gatling","pumpkin","coffee","garlic","cherry","magnet","tallnut"});
+				else if(key=="ability")ok=ChoiceField(v,c.ability,{"none","seed_jam","raise","shoot_ice","shoot_fire","heal","bite","shoot_melon","shoot_pea","shield_aura","rally","lane_dash","cherry_charge","magnet_steal","rebound"});
 				else if(key=="health")ok=Integer(v,1,10000000,c.health);
 				else if(key=="armor")ok=Integer(v,0,10000000,c.armor);
 				else if(key=="interval")ok=Integer(v,50,60000,c.interval);
@@ -619,12 +619,46 @@ namespace
 				owners[c.slot]=&m.info;
 			}
 		}
+		gBundledLevels=gCustomLevels;
+		for(const auto& level:gPlayerLevels)
+			if(std::none_of(gCustomLevels.begin(),gCustomLevels.end(),[&](const auto& c){return c.id==level.id;}))
+				gCustomLevels.push_back(level);
 		++gSnapshotRevision;
 	}
 }
+// Private adapter shared only with the editor backend; no second JSON parser.
+namespace PvzpPlayerLevelParsing {
+ bool CanPublish(const std::vector<PvzpMod::CustomLevel>& levels){
+	 if(levels.size()>32)return false;
+	 std::set<std::string> ids;
+	 for(const auto& level:levels){
+		 if(level.id.compare(0,7,"player.")!=0||level.id.size()<=7||!StableId(level.id,128)||
+			 level.id.find("..")!=std::string::npos||!ids.insert(level.id).second)return false;
+		 if(std::any_of(gBundledLevels.begin(),gBundledLevels.end(),[&](const auto& c){return c.id==level.id;}))return false;
+	 }
+	 return true;
+ }
+ bool Parse(std::string_view text,PvzpMod::CustomLevel& out,std::string& error){
+	 if(text.size()>65536||!Utf8(std::string(text))){error="invalid UTF-8 or file exceeds 64 KiB";return false;}
+	 JsonValue root;
+	 if(!JsonParser(std::string(text)).Parse(root)||root.mType!=JsonValue::Type::Object){error="invalid JSON, duplicate key, or trailing content";return false;}
+	 if(root.mObject.size()!=2||!root.mObject.contains("schemaVersion")||!root.mObject.contains("customLevels")){
+		 error="player file permits only schemaVersion and customLevels";return false;
+	 }
+	 int version=0;
+	 if(!Integer(root.mObject.at("schemaVersion"),2,2,version)){error="schemaVersion must be 2";return false;}
+	 Loaded parsed;
+	 if(!CustomLevelSection(root.mObject.at("customLevels"),parsed,error))return false;
+	 if(parsed.customLevels.size()!=1){error="player file requires exactly one customLevel";return false;}
+	 const auto& level=parsed.customLevels.front();
+	 if(level.waves.size()>30){error="player level exceeds 30 waves";return false;}
+	 for(const auto& wave:level.waves)if(wave.spawns.size()>12){error="player wave exceeds 12 spawn groups";return false;}
+	 out=level;return true;
+ }
+}
 namespace PvzpMod {
  bool LoadFromDirectory(const std::filesystem::path& dir){
-	 gModules.clear();gPersistentDiagnostics.clear();gDiagnostics.clear();Rebuild();
+	 gPlayerLevels.clear();gModules.clear();gPersistentDiagnostics.clear();gDiagnostics.clear();Rebuild();
 	 namespace fs=std::filesystem;std::error_code ec;
 	 if(!fs::exists(dir,ec))return !ec;
 	 if(ec||!fs::is_directory(dir,ec)||ec){Report(dir,"mods directory inaccessible");return false;}
@@ -670,7 +704,14 @@ namespace PvzpMod {
  const std::vector<CustomPlant>& CustomPlants(){return gCustomPlants;}
  const std::vector<CustomZombie>& CustomZombies(){return gCustomZombies;}
  const std::vector<CustomLevel>& CustomLevels(){return gCustomLevels;}
- uint64_t RulesFingerprint(){
+ bool PublishPlayerLevels(const std::vector<CustomLevel>& levels){
+	 if(!PvzpPlayerLevelParsing::CanPublish(levels))return false;
+	 auto catalog=gBundledLevels;
+	 catalog.insert(catalog.end(),levels.begin(),levels.end());
+	 gPlayerLevels=levels;gCustomLevels=std::move(catalog);++gSnapshotRevision;
+	 return true;
+ }
+ static uint64_t Fingerprint(bool includeLevels){
 	 uint64_t h=14695981039346656037ULL;
 	 auto add=[&](std::string_view s){for(unsigned char c:s){h^=c;h*=1099511628211ULL;}h^=0;h*=1099511628211ULL;};
 	 for(const auto& mod:gModules)if(mod.info.enabled){add(mod.info.id);add(std::to_string(mod.info.priority));}
@@ -704,9 +745,9 @@ namespace PvzpMod {
 				 c.slowResistancePercent,c.sunDrop,c.tintR,c.tintG,c.tintB})add(std::to_string(n));
 		 }
 	 }
-	 if(!gCustomLevels.empty()){
-		 add("customLevels");add(std::to_string(gCustomLevels.size()));
-		 for(const auto& c:gCustomLevels){
+	 if(includeLevels&&!gBundledLevels.empty()){
+		 add("customLevels");add(std::to_string(gBundledLevels.size()));
+		 for(const auto& c:gBundledLevels){
 			 add(c.id);add(c.name);add(c.description);add(std::to_string(c.startingSun));
 			 add(std::to_string(c.waves.size()));
 			 for(const auto& w:c.waves){
@@ -717,6 +758,8 @@ namespace PvzpMod {
 	 }
 	 return h;
  }
+ uint64_t RulesFingerprint(){return Fingerprint(true);}
+ uint64_t GameplayFingerprint(){return Fingerprint(false);}
  void WarnSavedRules(uint64_t saved){
 	 if(saved!=RulesFingerprint()){
 		 Report("savegame","saved mod rules differ from currently enabled mods; existing entities retain saved stats; restart/new level for consistent balance");

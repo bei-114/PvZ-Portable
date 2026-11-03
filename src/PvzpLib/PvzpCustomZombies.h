@@ -17,6 +17,8 @@ bool CanSpawn(Board* board, std::string_view id, int row=-1);
 std::string Id(const Zombie* zombie);
 std::string Name(const Zombie* zombie);
 int Int(const Zombie* zombie, std::string_view field, int fallback);
+int RedirectDamage(Zombie* victim,int damage,unsigned int flags);
+bool ReflectProjectile(Projectile* projectile,Zombie* target);
 void Update(Board* board);
 // Apply a bounded control effect without HitIceTrap's implicit 20 damage.
 void FreezeZombie(Zombie* zombie, int ticks);

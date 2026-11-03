@@ -8026,6 +8026,7 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 	if (mZombiePhase == ZombiePhase::PHASE_JACK_IN_THE_BOX_POPPING || IsDeadOrDying())
 		return;
 
+	theDamage = PvzpCustomZombies::RedirectDamage(this, theDamage, theDamageFlags);
 	int aDamageRemaining = theDamage;
 
 	if (IsFlying())

@@ -1,6 +1,7 @@
 /* PvZ-Portable startup-only JSON mod framework. SPDX-License-Identifier: LGPL-3.0-or-later
  * See DOCS_MOD.md for schema, precedence, limits, names, and units (game ticks).
- * Restart the game to apply changes: plant/zombie definitions are cached.
+ * Restart for mod rule changes: plant/zombie definitions are cached.
+ * Player-level catalog publication is isolated and takes effect immediately.
  */
 #pragma once
 
@@ -52,6 +53,11 @@ namespace PvzpMod
 	// Stable fingerprint of effective rules, for warning when loading a save
 	// created with a different mod set. It is not an integrity/security hash.
 	uint64_t RulesFingerprint();
+	// Gameplay rules only: excludes bundled/editor level catalogs.
+	uint64_t GameplayFingerprint();
+	// Menu-only publication. Rejects duplicate/non-player IDs and bundled collisions.
+	// Does not rebuild cached entity rules or alter either rules fingerprint.
+	bool PublishPlayerLevels(const std::vector<CustomLevel>& levels);
 	// Tooling snapshot generation, including resets/toggles with equal effective rules.
 	// Consumers caching derived definitions must refresh when this changes.
 	uint64_t SnapshotRevision();

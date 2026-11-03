@@ -1,0 +1,47 @@
+{
+ "schemaVersion":2,"id":"org.pvzp.example.carnival-campaign","name":"Counterplay Carnival Campaign","priority":140,"enabled":true,
+ "customLevels":[
+  {"id":"pvzp.coffee_overtime","name":"Overtime at the Coffee Shop","startingSun":1800,
+   "description":"Coffee commanders grant a short, non-stacking speed rally. Pumpkin guards absorb nearby allied damage while their armor survives. Freeze the guard, break its armor, and burst down the commander between rallies.",
+   "waves":[
+    {"delay":3000,"spawns":[{"zombie":"pvzp.espresso_commander","row":2},{"zombie":"CONEHEAD_ZOMBIE","count":4}]},
+    {"delay":2100,"spawns":[{"zombie":"pvzp.pumpkin_guard","row":2},{"zombie":"pvzp.espresso_commander","row":2},{"zombie":"pvzp.firepea_head","count":2}]},
+    {"delay":2200,"spawns":[{"zombie":"pvzp.espresso_commander","count":2},{"zombie":"pvzp.gatling_head","count":2},{"zombie":"BUCKETHEAD_ZOMBIE","count":3}]},
+    {"delay":2200,"spawns":[{"zombie":"pvzp.pumpkin_guard","count":2},{"zombie":"pvzp.sunflower_head"},{"zombie":"pvzp.espresso_commander"},{"zombie":"FOOTBALL_ZOMBIE","count":3}]},
+    {"delay":2500,"spawns":[{"zombie":"pvzp.espresso_commander","count":3},{"zombie":"pvzp.melon_head","count":3},{"zombie":"pvzp.pumpkin_guard","count":2}]},
+    {"delay":2600,"spawns":[{"zombie":"pvzp.pumpkin_guard","count":3},{"zombie":"pvzp.espresso_commander","count":3},{"zombie":"pvzp.gatling_head","count":3},{"zombie":"pvzp.sunflower_head","count":2}]}
+   ]},
+  {"id":"pvzp.garlic_delivery","name":"Special Garlic Delivery","startingSun":2000,
+   "description":"Garlic hoppers show an arrow before changing to an adjacent lane and cannot hop through a close blocker. Cherry couriers arm a visible one-second fuse near plants. Freeze or butter pauses both wind-ups; defeat a courier to disarm it.",
+   "waves":[
+    {"delay":3200,"spawns":[{"zombie":"pvzp.garlic_hopper","count":3},{"zombie":"ZOMBIE","count":3}]},
+    {"delay":2200,"spawns":[{"zombie":"pvzp.cherry_courier","row":2},{"zombie":"pvzp.garlic_hopper","count":3}]},
+    {"delay":2200,"spawns":[{"zombie":"pvzp.cherry_courier","count":3},{"zombie":"pvzp.snowpea_head","count":2}]},
+    {"delay":2300,"spawns":[{"zombie":"pvzp.garlic_hopper","count":4},{"zombie":"pvzp.espresso_commander"},{"zombie":"pvzp.cherry_courier","count":2}]},
+    {"delay":2300,"spawns":[{"zombie":"pvzp.garlic_hopper","count":3},{"zombie":"pvzp.pumpkin_guard","count":2},{"zombie":"pvzp.cherry_courier","count":3}]},
+    {"delay":2600,"spawns":[{"zombie":"pvzp.cherry_courier","count":5},{"zombie":"pvzp.garlic_hopper","count":4},{"zombie":"pvzp.espresso_commander","count":2}]}
+   ]},
+  {"id":"pvzp.sunshine_bank","name":"The Sunshine Bank Job","startingSun":1500,
+   "description":"Pickpockets steal only uncollected sun near them, never your banked balance. Each holds at most 300 sun and returns it as bounty when defeated. Collect promptly, protect your production, and recover the stolen sunshine.",
+   "waves":[
+    {"delay":3000,"spawns":[{"zombie":"pvzp.magnet_pickpocket","row":2},{"zombie":"CONEHEAD_ZOMBIE","count":4}]},
+    {"delay":2200,"spawns":[{"zombie":"pvzp.magnet_pickpocket","count":2},{"zombie":"pvzp.seed_packet_head"},{"zombie":"BUCKETHEAD_ZOMBIE","count":2}]},
+    {"delay":2200,"spawns":[{"zombie":"pvzp.pumpkin_guard"},{"zombie":"pvzp.magnet_pickpocket","count":3},{"zombie":"pvzp.sunflower_head"}]},
+    {"delay":2300,"spawns":[{"zombie":"pvzp.magnet_pickpocket","count":3},{"zombie":"pvzp.seed_packet_head","count":2},{"zombie":"pvzp.garlic_hopper","count":3}]},
+    {"delay":2400,"spawns":[{"zombie":"pvzp.magnet_pickpocket","count":4},{"zombie":"pvzp.spring_tallnut","count":2},{"zombie":"pvzp.firepea_head","count":3}]},
+    {"delay":2600,"spawns":[{"zombie":"pvzp.magnet_pickpocket","count":4},{"zombie":"pvzp.pumpkin_guard","count":2},{"zombie":"pvzp.seed_packet_head","count":3},{"zombie":"pvzp.espresso_commander","count":2}]}
+   ]},
+  {"id":"pvzp.funhouse_finale","name":"Funhouse Grand Finale","startingSun":3000,
+   "description":"A hard mixed puzzle. Tall-nuts reflect ordinary peas only while armored and ready; lobbed shots, fire, electric shots and prism-refraction bypass reflection. Freeze disables active guards and wind-ups. Mix defenses rather than relying on one shooter.",
+   "waves":[
+    {"delay":3500,"spawns":[{"zombie":"pvzp.spring_tallnut","count":2},{"zombie":"CONEHEAD_ZOMBIE","count":4}]},
+    {"delay":2300,"spawns":[{"zombie":"pvzp.spring_tallnut","count":2},{"zombie":"pvzp.espresso_commander"},{"zombie":"pvzp.garlic_hopper","count":3}]},
+    {"delay":2400,"spawns":[{"zombie":"pvzp.pumpkin_guard","count":2},{"zombie":"pvzp.cherry_courier","count":3},{"zombie":"pvzp.magnet_pickpocket","count":2}]},
+    {"delay":2400,"spawns":[{"zombie":"pvzp.spring_tallnut","count":3},{"zombie":"pvzp.sunflower_head","count":2},{"zombie":"pvzp.melon_head","count":2}]},
+    {"delay":2400,"spawns":[{"zombie":"pvzp.garlic_hopper","count":4},{"zombie":"pvzp.cherry_courier","count":4},{"zombie":"pvzp.espresso_commander","count":2}]},
+    {"delay":2500,"spawns":[{"zombie":"pvzp.spring_tallnut","count":3},{"zombie":"pvzp.pumpkin_guard","count":2},{"zombie":"pvzp.gatling_head","count":3},{"zombie":"pvzp.magnet_pickpocket","count":2}]},
+    {"delay":2700,"spawns":[{"zombie":"pvzp.tombstone_head","count":3},{"zombie":"pvzp.espresso_commander","count":3},{"zombie":"pvzp.cherry_courier","count":4},{"zombie":"pvzp.sunflower_head","count":2}]},
+    {"delay":3000,"spawns":[{"zombie":"pvzp.spring_tallnut","count":3},{"zombie":"pvzp.pumpkin_guard","count":3},{"zombie":"pvzp.espresso_commander","count":3},{"zombie":"pvzp.garlic_hopper","count":3},{"zombie":"pvzp.cherry_courier","count":3},{"zombie":"pvzp.magnet_pickpocket","count":3},{"zombie":"pvzp.gatling_head","count":3}]}
+   ]}
+ ]
+}

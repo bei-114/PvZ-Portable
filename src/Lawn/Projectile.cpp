@@ -1205,6 +1205,7 @@ void Projectile::DoElectricImpact(Zombie* theZombie)
 
 void Projectile::DoImpact(Zombie* theZombie)
 {
+	if (PvzpCustomZombies::ReflectProjectile(this, theZombie)) return;
 	PvzpPrism::BeforeImpact(this, theZombie);
 	if (IsElectric() && theZombie)
 	{

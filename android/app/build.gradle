@@ -40,7 +40,8 @@ android {
     compileSdk 36
 
     defaultConfig {
-        applicationId "io.github.wszqkzqk.pvzportable"
+        // Dedicated, stable MOD identity: coexist with the old randomly-signed APK.
+        applicationId "io.github.wszqkzqk.pvzportable.mod"
         minSdk 24
         targetSdk 36
         versionCode gitVersionCode
@@ -69,6 +70,8 @@ android {
             def storeFilePath = System.getenv('PVZP_KEYSTORE_FILE')
             if (storeFilePath) {
                 storeFile file(storeFilePath)
+                def requestedStoreType = System.getenv('PVZP_KEYSTORE_TYPE')
+                if (requestedStoreType) storeType requestedStoreType
                 storePassword System.getenv('PVZP_KEYSTORE_PASSWORD')
                 keyAlias System.getenv('PVZP_KEY_ALIAS')
                 keyPassword System.getenv('PVZP_KEY_PASSWORD')

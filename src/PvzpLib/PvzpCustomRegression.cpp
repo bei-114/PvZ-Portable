@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cmath>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -602,8 +603,8 @@ void CompositeTicks(Board* b, int ticks) {
 }
 bool CompositeAbilities(CustomTest& t, Board* b) {
     ClearFixture(b);
-    if (!Check(t, PvzpMod::CustomZombies().size() == 8 && PvzpMod::CustomLevels().size() == 3 && b->CanUseModTools(),
-        "composite_live_fixture_eight_variants_three_levels_tools_enabled")) return false;
+    if (!Check(t, PvzpMod::CustomZombies().size() == 14 && PvzpMod::CustomLevels().size() == 7 && b->CanUseModTools(),
+        "composite_live_fixture_fourteen_variants_seven_levels_tools_enabled")) return false;
     for (const auto& c : PvzpMod::CustomZombies()) {
         Zombie* z = CompositeEnemy(b, c.id);
         if (!Check(t, z && z->mZombieType == ZOMBIE_NORMAL && PvzpCustomZombies::Id(z) == c.id &&
@@ -715,6 +716,444 @@ bool CompositeAbilities(CustomTest& t, Board* b) {
         "chomper_ability_deals500_to_real_near_row_plant_and_lifesteals125_without_other_row_damage");
     return true;
 }
+uint32_t CarnivalGet(const std::vector<uint8_t>& bytes, size_t at) {
+    if (at > bytes.size() || bytes.size() - at < 4) return UINT32_MAX;
+    uint32_t value = 0;
+    for (int i = 0; i < 4; ++i) value |= uint32_t(bytes[at + i]) << (8 * i);
+    return value;
+}
+void CarnivalSet(std::vector<uint8_t>& bytes, size_t at, uint32_t value) {
+    if (at > bytes.size() || bytes.size() - at < 4) return;
+    for (int i = 0; i < 4; ++i) bytes[at + i] = uint8_t(value >> (8 * i));
+}
+struct CarnivalLayout {
+    bool ok = false;
+    std::map<uint32_t, size_t> actors;
+    size_t frozen = 0, shots = 0, haste = 0;
+    explicit CarnivalLayout(const std::vector<uint8_t>& bytes) {
+        const uint32_t version = CarnivalGet(bytes, 0), count = CarnivalGet(bytes, 4);
+        if ((version != 1 && version != 2) || count > 1024) return;
+        size_t at = 8;
+        for (uint32_t i = 0; i < count; ++i) {
+            const uint32_t length = CarnivalGet(bytes, at + 4);
+            if (length > 96 || at + 8 + length + (version == 2 ? 24 : 12) > bytes.size()) return;
+            actors[CarnivalGet(bytes, at)] = at + 8 + length;
+            at += 8 + length + (version == 2 ? 24 : 12);
+        }
+        frozen = at; const uint32_t frozenCount = CarnivalGet(bytes, at);
+        if (frozenCount > 1024) return;
+        at += 4 + 8 * size_t(frozenCount); shots = at;
+        const uint32_t shotCount = CarnivalGet(bytes, at); at += 4;
+        if (shotCount > 1024) return;
+        for (uint32_t i = 0; i < shotCount; ++i) {
+            const uint32_t length = CarnivalGet(bytes, at + 12);
+            if (length > 8 || at + 16 + length > bytes.size()) return;
+            at += 16 + length;
+        }
+        haste = at;
+        if (version == 2) {
+            const uint32_t hasteCount = CarnivalGet(bytes, at);
+            if (hasteCount > 1024) return;
+            at += 4 + 12 * size_t(hasteCount);
+        }
+        ok = at == bytes.size();
+    }
+};
+int CarnivalPhase(Board* b, Zombie* z) {
+    const auto bytes = PvzpCustomZombies::Save(b); const CarnivalLayout layout(bytes);
+    if (!layout.ok || !z || CarnivalGet(bytes, 0) != 2) return 0;
+    const auto found = layout.actors.find(b->mZombies.DataArrayGetID(z));
+    return found == layout.actors.end() ? -1 : int(CarnivalGet(bytes, found->second + 12));
+}
+Coin* CarnivalSun(Board* b, Zombie* z, int dx = 0, int dy = 0, CoinType type = COIN_SUN) {
+    Coin* coin = b->AddCoin(int(z->mPosX) + dx, int(z->mPosY) + dy, type, COIN_MOTION_FROM_PLANT);
+    if (coin) { coin->mPosX = z->mPosX + dx; coin->mPosY = z->mPosY + dy; coin->mIsBeingCollected = false; }
+    return coin;
+}
+Projectile* CarnivalPea(Board* b, Zombie* target, ProjectileType type = PROJECTILE_PEA) {
+    return b->AddProjectile(int(target->mPosX), int(target->mPosY) + 35, target->mRenderOrder + 1, target->mRow, type);
+}
+bool CarnivalGuardianAndRally(CustomTest& t, Board* b) {
+    ClearFixture(b);
+    Zombie* guard = CompositeEnemy(b, "pvzp.pumpkin_guard");
+    Zombie* ally = Enemy(b, ZOMBIE_NORMAL, 2);
+    if (!Check(t, guard && ally, "carnival_guard_actual_damage_fixture")) return false;
+    ally->mBodyHealth = ally->mBodyMaxHealth = 10000;
+    const int armor = guard->mHelmHealth;
+    ally->TakeDamage(100, 0);
+    Check(t, ally->mBodyHealth == 9940 && guard->mHelmHealth == armor - 40,
+        "pumpkin_real_TakeDamage_redirects40percent_to_near_same_faction_armor_once");
+    guard->mIceTrapCounter = 1; ally->TakeDamage(100, 0);
+    Check(t, ally->mBodyHealth == 9840 && guard->mHelmHealth == armor - 40,
+        "pumpkin_ice_trap_disables_guardian_redirect_without_wearing_armor");
+    guard->mIceTrapCounter = 0; guard->mButteredCounter = 1; ally->TakeDamage(100, 0);
+    Check(t, ally->mBodyHealth == 9740 && guard->mHelmHealth == armor - 40,
+        "pumpkin_butter_disables_guardian_redirect");
+    guard->mButteredCounter = 0; ally->StartMindControlled(); ally->TakeDamage(100, 0);
+    Check(t, ally->mBodyHealth == 9640 && guard->mHelmHealth == armor - 40,
+        "pumpkin_never_shields_opposite_faction");
+    ally->mMindControlled = false; guard->mPosX = 900; guard->mX = 900; ally->TakeDamage(100, 0);
+    Check(t, ally->mBodyHealth == 9540 && guard->mHelmHealth == armor - 40,
+        "pumpkin_distant_guardian_outside170px_does_not_redirect");
+    guard->mPosX = 650; guard->mX = 650;
+    Zombie* secondGuard = CompositeEnemy(b, "pvzp.pumpkin_guard", 3);
+    if (!Check(t, secondGuard != nullptr, "pumpkin_second_guardian_nonrecursive_fixture")) return false;
+    const int secondArmor = secondGuard->mHelmHealth;
+    guard->TakeDamage(100, 0);
+    Check(t, guard->mHelmHealth == armor - 140 && secondGuard->mHelmHealth == secondArmor,
+        "pumpkin_guardian_self_damage_never_recurses_into_another_guardian");
+    secondGuard->mIceTrapCounter = 1; guard->mHelmHealth = 0;
+    ally->TakeDamage(100, 0);
+    Check(t, ally->mBodyHealth == 9440, "pumpkin_broken_armor_disables_guardian_aura");
+    guard->mHelmHealth = armor; // Ensure a live, otherwise eligible guardian exists.
+    const auto oldType = ally->mZombieType; ally->mZombieType = ZOMBIE_BOSS;
+    Check(t, PvzpCustomZombies::RedirectDamage(ally, 100, 0) == 100,
+        "pumpkin_boss_damage_is_never_redirected");
+    ally->mZombieType = oldType;
+
+    ClearFixture(b);
+    Zombie* commander = CompositeEnemy(b, "pvzp.espresso_commander");
+    Zombie* commander2 = CompositeEnemy(b, "pvzp.espresso_commander", 3);
+    ally = Enemy(b, ZOMBIE_NORMAL, 2);
+    Zombie* far = Enemy(b, ZOMBIE_NORMAL, 0);
+    Zombie* hostile = Enemy(b, ZOMBIE_NORMAL, 2);
+    Zombie* bossExclusion = Enemy(b, ZOMBIE_NORMAL, 2);
+    if (!Check(t, commander && commander2 && ally && far && hostile && bossExclusion, "coffee_nonstacking_vanilla_faction_fixture")) return false;
+    hostile->StartMindControlled();
+    bossExclusion->mZombieType = ZOMBIE_BOSS; // No Board/Zombie updates while temporarily testing the predicate.
+    CompositeTicks(b, 499);
+    Check(t, PvzpCustomZombies::Int(ally, "speedPercent", 100) == 100,
+        "coffee_rally_does_not_apply_before_exact500tick_interval");
+    CompositeTicks(b, 1);
+    Check(t, PvzpCustomZombies::Int(ally, "speedPercent", 100) == 150 &&
+        PvzpCustomZombies::Int(commander, "speedPercent", 100) == 142 &&
+        PvzpCustomZombies::Int(far, "speedPercent", 100) == 100 &&
+        PvzpCustomZombies::Int(hostile, "speedPercent", 100) == 100,
+        "coffee_two_commanders_apply_single50percent_rally_to_near_vanilla_and_custom_same_faction_only");
+    Check(t, PvzpCustomZombies::Int(bossExclusion, "speedPercent", 100) == 100,
+        "coffee_rally_never_buffs_boss_even_when_otherwise_near_same_faction");
+    bossExclusion->mZombieType = ZOMBIE_NORMAL;
+    // Compare production walking displacement, not only the sidecar accessor.
+    Reanimation* body = b->mApp->ReanimationTryToGet(ally->mBodyReanimID);
+    if (!Check(t, body != nullptr, "coffee_vanilla_walking_reanimation_fixture")) return false;
+    ally->mVelX = 1; float base = ally->mVelX;
+    if (body->TrackExists("_ground")) {
+        base = 0;
+        for (int frame = 0; frame < 100 && std::fabs(base) < 0.001f; ++frame) {
+            body->mAnimTime = frame / 100.0f; base = body->GetTrackVelocity("_ground") * ally->mScaleZombie;
+        }
+    }
+    const float beforeX = ally->mPosX; ally->UpdateZombieWalking();
+    Check(t, std::fabs(base) > 0.001f && std::fabs(beforeX - ally->mPosX - base * 1.5f) < 0.001f,
+        "coffee_rally_changes_actual_vanilla_walking_displacement_once");
+    CompositeTicks(b, 175);
+    const auto partial = PvzpCustomZombies::Save(b);
+    Check(t, CarnivalGet(partial, 0) == 2 && PvzpCustomZombies::Load(b, partial) && PvzpCustomZombies::Save(b) == partial,
+        "coffee_remaining75tick_haste_saves_and_roundtrips_as_v2");
+    CompositeTicks(b, 74);
+    Check(t, PvzpCustomZombies::Int(ally, "speedPercent", 100) == 150,
+        "coffee_restored75tick_rally_remains_active_after74_updates");
+    CompositeTicks(b, 1);
+    Check(t, PvzpCustomZombies::Int(ally, "speedPercent", 100) == 100,
+        "coffee_rally_expires_on_exact250th_update_not_one_early_or_late");
+    return true;
+}
+bool CarnivalWindups(CustomTest& t, Board* b) {
+    ClearFixture(b);
+    Zombie* garlic = CompositeEnemy(b, "pvzp.garlic_hopper");
+    if (!Check(t, garlic != nullptr, "garlic_adjacent_lane_windup_fixture")) return false;
+    const float x = garlic->mPosX;
+    CompositeTicks(b, 399);
+    Check(t, garlic->mRow == 2 && CarnivalPhase(b, garlic) == 0, "garlic_no_early_lane_dash_before400");
+    CompositeTicks(b, 1);
+    Check(t, garlic->mRow == 2 && CarnivalPhase(b, garlic) == 80, "garlic_exact400_arms_visible80tick_lane_windup");
+    CompositeTicks(b, 30);
+    const auto pending = PvzpCustomZombies::Save(b);
+    garlic->mIceTrapCounter = 1; CompositeTicks(b, 20);
+    Check(t, PvzpCustomZombies::Save(b) == pending, "garlic_freeze_pauses_pending_phase_and_target_row_exactly");
+    garlic->mIceTrapCounter = 0; garlic->mButteredCounter = 1; CompositeTicks(b, 20);
+    Check(t, PvzpCustomZombies::Save(b) == pending, "garlic_butter_also_pauses_pending_lane_windup");
+    garlic->mButteredCounter = 0;
+    Check(t, PvzpCustomZombies::Load(b, pending) && PvzpCustomZombies::Save(b) == pending,
+        "garlic_midwindup_phase50_and_adjacent_target_row_roundtrip_without_reset");
+    CompositeTicks(b, 49);
+    Check(t, garlic->mRow == 2 && CarnivalPhase(b, garlic) == 1, "garlic_restored50tick_windup_does_not_shift_after49");
+    CompositeTicks(b, 1);
+    Check(t, garlic->mRow == 1 && garlic->mPosX == x && garlic->mX == int(x) &&
+        garlic->mPosY == garlic->GetPosYBasedOnRow(1) && garlic->mY == int(garlic->mPosY),
+        "garlic_exact80_changes_one_adjacent_row_with_synced_y_and_no_x_teleport");
+    for (bool eating : {true, false}) {
+        ClearFixture(b); garlic = CompositeEnemy(b, "pvzp.garlic_hopper");
+        Plant* blocker = eating ? nullptr : b->AddPlant(3, 2, SEED_WALLNUT);
+        if (!Check(t, garlic && (eating || blocker), "garlic_blocker_or_eating_fixture")) return false;
+        garlic->mIsEating = eating;
+        if (blocker) { garlic->mPosX = float(blocker->mX + 80); garlic->mX = int(garlic->mPosX); }
+        CompositeTicks(b, 480);
+        Check(t, garlic->mRow == 2 && CarnivalPhase(b, garlic) == 0,
+            "garlic_cannot_arm_or_shift_while_eating_or_within105_of_plant");
+    }
+    ClearFixture(b);
+    Plant* plant = b->AddPlant(3, 2, SEED_WALLNUT);
+    Plant* adjacent = b->AddPlant(3, 1, SEED_WALLNUT);
+    Plant* distant = b->AddPlant(0, 2, SEED_WALLNUT);
+    Zombie* cherry = CompositeEnemy(b, "pvzp.cherry_courier");
+    if (!Check(t, plant && adjacent && distant && cherry, "cherry_fuse_radius_and_row_fixture")) return false;
+    for (Plant* p : {plant, adjacent, distant}) p->mPlantHealth = p->mPlantMaxHealth = 10000;
+    cherry->mPosX = float(plant->mX + 80); cherry->mX = int(cherry->mPosX);
+    CompositeTicks(b, 50);
+    Check(t, CarnivalPhase(b, cherry) == 100 && plant->mPlantHealth == 10000,
+        "cherry_arms_visible100tick_fuse_near_real_plant_without_immediate_damage");
+    cherry->mIceTrapCounter = 1; const auto fuse = PvzpCustomZombies::Save(b); CompositeTicks(b, 100);
+    Check(t, PvzpCustomZombies::Save(b) == fuse && plant->mPlantHealth == 10000,
+        "cherry_freeze_pauses_pending_fuse_and_prevents_early_explosion");
+    cherry->mIceTrapCounter = 0; cherry->mButteredCounter = 1; CompositeTicks(b, 10);
+    Check(t, PvzpCustomZombies::Save(b) == fuse, "cherry_butter_pauses_visible_fuse");
+    cherry->mButteredCounter = 0;
+    Check(t, PvzpCustomZombies::Load(b, fuse) && PvzpCustomZombies::Save(b) == fuse,
+        "cherry_pending_fuse_roundtrip_does_not_restart_or_immediately_explode");
+    CompositeTicks(b, 99);
+    Check(t, !cherry->mDead && plant->mPlantHealth == 10000, "cherry_no_explosion_before_final_fuse_tick");
+    CompositeTicks(b, 1);
+    Check(t, cherry->mDead && cherry->mDroppedLoot && plant->mPlantHealth == 9100 && adjacent->mPlantHealth == 9100 &&
+        distant->mPlantHealth == 10000, "cherry_exact_fuse_deals900_within150px_adjacent_rows_then_dies_with_loot");
+    ClearFixture(b); plant = b->AddPlant(3, 2, SEED_WALLNUT); cherry = CompositeEnemy(b, "pvzp.cherry_courier");
+    if (!Check(t, plant && cherry, "cherry_killed_fuse_disarm_fixture")) return false;
+    cherry->mPosX = float(plant->mX + 80); cherry->mX = int(cherry->mPosX);
+    CompositeTicks(b, 50); const int hp = plant->mPlantHealth; cherry->TakeDamage(5000, 0); CompositeTicks(b, 150);
+    Check(t, cherry->IsDeadOrDying() && plant->mPlantHealth == hp,
+        "cherry_killed_before_fuse_completion_cannot_explode_later");
+    ClearFixture(b); plant = b->AddPlant(3, 2, SEED_WALLNUT); cherry = CompositeEnemy(b, "pvzp.cherry_courier");
+    Zombie* hostile = Enemy(b, ZOMBIE_NORMAL, 2); Zombie* friendZombie = Enemy(b, ZOMBIE_NORMAL, 3);
+    if (!Check(t, plant && cherry && hostile && friendZombie, "cherry_charmed_faction_explosion_fixture")) return false;
+    cherry->StartMindControlled(); friendZombie->StartMindControlled();
+    for (Zombie* z : {hostile, friendZombie}) z->mBodyHealth = z->mBodyMaxHealth = 10000;
+    const int plantHP = plant->mPlantHealth;
+    CompositeTicks(b, 150);
+    Check(t, cherry->mDead && hostile->mBodyHealth == 9100 && friendZombie->mBodyHealth == 10000 && plant->mPlantHealth == plantHP,
+        "cherry_charmed_fuse_targets_hostile_zombies_not_plants_or_charmed_allies");
+    return true;
+}
+bool CarnivalMagnetAndRebound(CustomTest& t, Board* b) {
+    ClearFixture(b);
+    Zombie* magnet = CompositeEnemy(b, "pvzp.magnet_pickpocket");
+    if (!Check(t, magnet != nullptr, "magnet_uncollected_sun_fixture")) return false;
+    std::vector<Coin*> nearby;
+    for (int i = 0; i < 5; ++i) nearby.push_back(CarnivalSun(b, magnet, i * 3));
+    Coin* outsideX = CarnivalSun(b, magnet, 221), *outsideY = CarnivalSun(b, magnet, 0, 161);
+    Coin* collecting = CarnivalSun(b, magnet), *moneyCoin = CarnivalSun(b, magnet, 0, 0, COIN_SILVER);
+    if (!Check(t, std::all_of(nearby.begin(), nearby.end(), [](Coin* c) { return c != nullptr; }) &&
+        outsideX && outsideY && collecting && moneyCoin, "magnet_actual_coin_range_collection_and_money_fixtures")) return false;
+    collecting->mIsBeingCollected = true;
+    b->mSunMoney = 1000;
+    CompositeTicks(b, 349);
+    Check(t, PvzpCustomZombies::Int(magnet, "sunDrop", 0) == 100 && Suns(b) == 8,
+        "magnet_does_not_steal_before_exact350tick_interval");
+    CompositeTicks(b, 1);
+    int stolen = 0; for (Coin* c : nearby) stolen += c->mDead;
+    Check(t, stolen == 3 && PvzpCustomZombies::Int(magnet, "sunDrop", 0) == 175 && b->mSunMoney == 1000 &&
+        !outsideX->mDead && !outsideY->mDead && !collecting->mDead && !moneyCoin->mDead,
+        "magnet_takes_only3_uncollected_near_suns_up_to75_without_touching_banked_money_or_other_coins");
+    for (int i = 0; i < 12; ++i) CarnivalSun(b, magnet);
+    CompositeTicks(b, 350 * 4);
+    Check(t, PvzpCustomZombies::Int(magnet, "sunDrop", 0) == 400 && b->mSunMoney == 1000,
+        "magnet_held_sun_caps_at300_and_total_defeat_bounty_includes_base100");
+    const int remaining = Suns(b); CompositeTicks(b, 350);
+    Check(t, Suns(b) == remaining && PvzpCustomZombies::Int(magnet, "sunDrop", 0) == 400,
+        "magnet_at300_capacity_leaves_additional_uncollected_sun_untouched");
+    const int beforeBounty = Suns(b); magnet->DropLoot();
+    Check(t, Suns(b) == beforeBounty + 16 && b->mSunMoney == 1000, "magnet_defeat_returns_held300_plus_base100_as16_collectible_suns");
+    magnet->DropLoot();
+    Check(t, Suns(b) == beforeBounty + 16, "magnet_held_bounty_is_returned_only_once_by_existing_loot_guard");
+    for (const auto type : {COIN_SMALLSUN, COIN_LARGESUN}) {
+        ClearFixture(b); magnet = CompositeEnemy(b, "pvzp.magnet_pickpocket");
+        if (!Check(t, magnet != nullptr, "magnet_independent_coin_count_and_budget_fixture")) return false;
+        for (int i = 0; i < 5; ++i) if (!CarnivalSun(b, magnet, 0, 0, type)) return false;
+        CompositeTicks(b, 350);
+        Check(t, Suns(b) == (type == COIN_SMALLSUN ? 2 : 4) &&
+            PvzpCustomZombies::Int(magnet, "sunDrop", 0) == (type == COIN_SMALLSUN ? 145 : 150),
+            "magnet_three_small15sun_count_cap_and_one_large50sun_budget_cap_are_independent");
+    }
+    ClearFixture(b); magnet = CompositeEnemy(b, "pvzp.magnet_pickpocket");
+    if (!Check(t, magnet != nullptr, "magnet_charmed_return_fixture")) return false;
+    for (int i = 0; i < 3; ++i) CarnivalSun(b, magnet);
+    CompositeTicks(b, 350); magnet->StartMindControlled(); Coin* charmCoin = CarnivalSun(b, magnet);
+    const int bank = b->mSunMoney; CompositeTicks(b, 350);
+    Check(t, charmCoin && charmCoin->mIsBeingCollected && b->mSunMoney == bank + 75 &&
+        PvzpCustomZombies::Int(magnet, "sunDrop", 0) == 100,
+        "magnet_charm_returns_previously_held_sun_and_autocollects_new_coin_instead_of_stealing");
+
+    ClearFixture(b);
+    Zombie* rebound = CompositeEnemy(b, "pvzp.spring_tallnut");
+    Plant* target = b->AddPlant(2, 2, SEED_WALLNUT);
+    if (!Check(t, rebound && target, "rebound_actual_impact_fixture")) return false;
+    target->mPlantHealth = target->mPlantMaxHealth = 10000;
+    Projectile* pea = CarnivalPea(b, rebound);
+    if (!Check(t, pea != nullptr, "rebound_incoming_real_pea_fixture")) return false;
+    const int armor = rebound->mHelmHealth; pea->DoImpact(rebound);
+    Projectile* reflected = nullptr;
+    for (Projectile* p : b->mProjectiles) if (!p->mDead && p->mProjectileType == PROJECTILE_ZOMBIE_PEA) reflected = p;
+    if (!Check(t, pea->mDead && reflected && Projectiles(b) == 1 && reflected->mMotionType == MOTION_BACKWARDS &&
+        rebound->mHelmHealth == armor - 20, "rebound_real_DoImpact_consumes_incoming20_armor_and_emits_one_hostile_pea")) return false;
+    const auto flight = PvzpCustomZombies::Save(b);
+    Check(t, CarnivalGet(flight, 0) == 2 && PvzpCustomZombies::Load(b, flight) && PvzpCustomZombies::Save(b) == flight,
+        "rebound_inflight_damage35_and_cooldown80_roundtrip_as_v2");
+    const Rect rect = target->GetPlantRect(); reflected->mPosX = float(rect.mX + rect.mWidth / 2);
+    reflected->mPosY = float(rect.mY + 10); reflected->mPosZ = 0; reflected->mX = int(reflected->mPosX); reflected->mY = int(reflected->mPosY);
+    reflected->CheckForCollision();
+    Check(t, reflected->mDead && target->mPlantHealth == 9965, "rebound_actual_hostile_projectile_collision_deals_configured35_damage");
+    Projectile* duringCooldown = CarnivalPea(b, rebound); if (!duringCooldown) return false;
+    duringCooldown->DoImpact(rebound);
+    Check(t, duringCooldown->mDead && Projectiles(b) == 0 && rebound->mHelmHealth == armor - 40,
+        "rebound_second_actual_impact_during80tick_cooldown_damages_normally_without_reflecting");
+    CompositeTicks(b, 79); pea = CarnivalPea(b, rebound); if (!pea) return false;
+    Check(t, !PvzpCustomZombies::ReflectProjectile(pea, rebound), "rebound_not_ready_after79_cooldown_updates");
+    CompositeTicks(b, 1);
+    Check(t, PvzpCustomZombies::ReflectProjectile(pea, rebound), "rebound_rearms_on_exact80th_update");
+    for (int exclusion = 0; exclusion < 8; ++exclusion) {
+        ClearFixture(b); rebound = CompositeEnemy(b, "pvzp.spring_tallnut");
+        if (!rebound) return false;
+        pea = CarnivalPea(b, rebound, exclusion == 0 ? PROJECTILE_FIREBALL : exclusion == 1 ? PROJECTILE_MELON : PROJECTILE_PEA);
+        if (!pea) return false;
+        if (exclusion == 2) pea->SetElectric(true);
+        if (exclusion == 3) pea->mMotionType = MOTION_LOBBED;
+        if (exclusion == 4) rebound->mIceTrapCounter = 1;
+        if (exclusion == 5) rebound->mHelmHealth = 0;
+        if (exclusion == 6) rebound->mButteredCounter = 1;
+        if (exclusion == 7) rebound->StartMindControlled();
+        const int beforeShots = Projectiles(b);
+        Check(t, !PvzpCustomZombies::ReflectProjectile(pea, rebound) && !pea->mDead && Projectiles(b) == beforeShots,
+            "rebound_fire_melon_electric_lobbed_frozen_broken_buttered_or_charmed_bypasses_without_spawning");
+    }
+    ClearFixture(b); rebound = CompositeEnemy(b, "pvzp.spring_tallnut");
+    Plant* prism = b->AddPlant(2, 2, static_cast<SeedType>(int(SEED_CUSTOM_FIRST) + 4));
+    if (!Check(t, rebound && prism, "rebound_prism_lineage_bypass_fixture")) return false;
+    pea = PrismShot(b, prism, PROJECTILE_PEA); if (!pea) return false;
+    PvzpPrism::UpdateProjectile(pea);
+    Check(t, PvzpPrism::IsRefracted(pea) && !PvzpCustomZombies::ReflectProjectile(pea, rebound) && !pea->mDead,
+        "rebound_prism_refracted_pea_lineage_bypasses_reflection");
+    return true;
+}
+
+bool CarnivalSaveV2(CustomTest& t, Board* b) {
+    ClearFixture(b);
+    Zombie* garlic = CompositeEnemy(b, "pvzp.garlic_hopper", 4);
+    if (!Check(t, garlic != nullptr, "v2_pending_garlic_source_fixture")) return false;
+    CompositeTicks(b, 400); garlic->mIceTrapCounter = 1;
+    Zombie* cherry = CompositeEnemy(b, "pvzp.cherry_courier", 2);
+    Plant* cherryTarget = b->AddPlant(3, 2, SEED_WALLNUT);
+    if (!Check(t, cherry && cherryTarget, "v2_pending_cherry_source_fixture")) return false;
+    cherryTarget->mPlantHealth = cherryTarget->mPlantMaxHealth = 10000;
+    cherry->mPosX = float(cherryTarget->mX + 80); cherry->mX = int(cherry->mPosX);
+    CompositeTicks(b, 50); cherry->mButteredCounter = 1;
+    Zombie* magnet = CompositeEnemy(b, "pvzp.magnet_pickpocket", 0);
+    if (!Check(t, magnet != nullptr, "v2_stored_sun_source_fixture")) return false;
+    for (int i = 0; i < 3; ++i) if (!CarnivalSun(b, magnet)) return false;
+    CompositeTicks(b, 350); magnet->mIceTrapCounter = 1;
+    Zombie* commander = CompositeEnemy(b, "pvzp.espresso_commander", 0);
+    Zombie* vanilla = Enemy(b, ZOMBIE_NORMAL, 0);
+    if (!Check(t, commander && vanilla, "v2_haste_source_and_vanilla_beneficiary_fixture")) return false;
+    CompositeTicks(b, 500); commander->mIceTrapCounter = 1;
+    Zombie* coldRebound = CompositeEnemy(b, "pvzp.spring_tallnut", 3);
+    Plant* frozen = b->AddPlant(2, 3, SEED_PEASHOOTER);
+    if (!Check(t, coldRebound && frozen, "v2_freeze75_source_fixture")) return false;
+    frozen->mPlantHealth = frozen->mPlantMaxHealth = 10000;
+    Projectile* cold = CarnivalPea(b, coldRebound, PROJECTILE_SNOWPEA);
+    if (!cold) return false;
+    cold->DoImpact(coldRebound);
+    Projectile* returned = nullptr;
+    for (Projectile* p : b->mProjectiles) if (!p->mDead && p->mProjectileType == PROJECTILE_ZOMBIE_PEA) returned = p;
+    if (!Check(t, returned != nullptr, "v2_snow_rebound_produces_real_freezing_enemy_projectile")) return false;
+    const Rect rect = frozen->GetPlantRect(); returned->mPosX = float(rect.mX + rect.mWidth / 2);
+    returned->mPosY = float(rect.mY + 10); returned->mPosZ = 0; returned->mX = int(returned->mPosX); returned->mY = int(returned->mPosY);
+    returned->CheckForCollision(); CompositeTicks(b, 15);
+    Check(t, frozen->mPlantHealth == 9965 && PvzpCustomZombies::PlantFrozen(frozen),
+        "v2_fixture_has_actual35_damage_and_remaining75tick_freeze_from_snow_rebound");
+    Zombie* rebound = CompositeEnemy(b, "pvzp.spring_tallnut", 1);
+    if (!Check(t, rebound != nullptr, "v2_live_rebound_shot_source_fixture")) return false;
+    Projectile* incoming = CarnivalPea(b, rebound); if (!incoming) return false;
+    incoming->DoImpact(rebound);
+    uint32_t shotID = 0;
+    for (Projectile* p : b->mProjectiles) if (!p->mDead && p->mProjectileType == PROJECTILE_ZOMBIE_PEA) shotID = b->mProjectiles.DataArrayGetID(p);
+    const uint32_t garlicID = b->mZombies.DataArrayGetID(garlic), cherryID = b->mZombies.DataArrayGetID(cherry);
+    const uint32_t magnetID = b->mZombies.DataArrayGetID(magnet), vanillaID = b->mZombies.DataArrayGetID(vanilla);
+    const uint32_t frozenID = b->mPlants.DataArrayGetID(frozen), targetID = b->mPlants.DataArrayGetID(cherryTarget);
+    const auto state = PvzpCustomZombies::Save(b); const CarnivalLayout layout(state);
+    if (!Check(t, layout.ok && CarnivalGet(state, 0) == 2 && layout.actors.contains(garlicID) && layout.actors.contains(cherryID) &&
+        layout.actors.contains(magnetID) && CarnivalGet(state, layout.frozen) == 1 && CarnivalGet(state, layout.frozen + 8) == 75 &&
+        CarnivalGet(state, layout.shots) == 1 && CarnivalGet(state, layout.haste) >= 2 && shotID != 0,
+        "v2_fixture_contains_pending_dash_fuse_held_sun_haste_freeze75_and_live_rebound_shot")) return false;
+    const size_t garlicAt = layout.actors.at(garlicID), cherryAt = layout.actors.at(cherryID), magnetAt = layout.actors.at(magnetID);
+    Check(t, CarnivalGet(state, garlicAt + 12) == 80 && CarnivalGet(state, garlicAt + 16) == 3 &&
+        CarnivalGet(state, cherryAt + 12) == 100 && CarnivalGet(state, cherryAt + 16) == UINT32_MAX &&
+        CarnivalGet(state, magnetAt + 20) == 75 && PvzpCustomZombies::Int(vanilla, "speedPercent", 100) == 150,
+        "v2_encoded_pending_fields_match_real80dash100fuse_adjacent_target75held_and_haste");
+    Check(t, PvzpCustomZombies::Load(b, state) && PvzpCustomZombies::Load(b, state) && PvzpCustomZombies::Save(b) == state,
+        "v2_repeated_roundtrip_is_exact_and_does_not_retrigger_source_abilities");
+    const int bank = b->mSunMoney, coins = Suns(b), hp = frozen->mPlantHealth;
+    auto rejected = [&](const std::vector<uint8_t>& bad, const char* label) {
+        Check(t, !PvzpCustomZombies::Load(b, bad) && PvzpCustomZombies::Save(b) == state &&
+            b->mSunMoney == bank && Suns(b) == coins && frozen->mPlantHealth == hp &&
+            PvzpCustomZombies::PlantFrozen(frozen) && PvzpCustomZombies::Int(magnet, "sunDrop", 0) == 175 &&
+            PvzpCustomZombies::Int(vanilla, "speedPercent", 100) == 150, label);
+    };
+    auto bad = state; bad.pop_back(); rejected(bad, "v2_truncation_rejected_atomically_across_all_four_sidecar_maps");
+    bad = state; bad.push_back(0); rejected(bad, "v2_trailing_byte_rejected_without_any_live_state_mutation");
+    bad = state; CarnivalSet(bad, 0, 3); rejected(bad, "v2_unknown_future_version_rejected_atomically");
+    bad = state; CarnivalSet(bad, garlicAt + 12, 81); rejected(bad, "v2_garlic_phase_above80_rejected_atomically");
+    bad = state; CarnivalSet(bad, cherryAt + 12, 101); rejected(bad, "v2_cherry_fuse_above100_rejected_atomically");
+    bad = state; CarnivalSet(bad, garlicAt + 16, 0); rejected(bad, "v2_garlic_nonadjacent_target_row_rejected_atomically");
+    bad = state; CarnivalSet(bad, garlicAt + 16, UINT32_MAX); rejected(bad, "v2_pending_garlic_missing_target_row_rejected_atomically");
+    bad = state; CarnivalSet(bad, garlicAt + 12, 0); rejected(bad, "v2_unarmed_garlic_cannot_keep_pending_target_row");
+    bad = state; CarnivalSet(bad, cherryAt + 16, 1); rejected(bad, "v2_cherry_cannot_borrow_garlic_pending_target_row");
+    bad = state; CarnivalSet(bad, magnetAt + 12, 1); rejected(bad, "v2_nonwindup_actor_cannot_have_pending_phase");
+    bad = state; CarnivalSet(bad, magnetAt + 20, 301); rejected(bad, "v2_held_sun_above300_rejected_atomically");
+    bad = state; CarnivalSet(bad, magnetAt + 20, 74); rejected(bad, "v2_held_sun_must_be_real_five_sun_units");
+    bad = state; CarnivalSet(bad, cherryAt + 20, 25); rejected(bad, "v2_nonmagnet_actor_cannot_claim_stored_sun");
+    bad = state; CarnivalSet(bad, layout.frozen + 8, 0); rejected(bad, "v2_zero_frozen_plant_duration_rejected_atomically");
+    bad = state; CarnivalSet(bad, layout.shots + 8, 1001); rejected(bad, "v2_oversized_rebound_projectile_damage_rejected_atomically");
+    bad = state; CarnivalSet(bad, layout.haste + 4, UINT32_MAX); rejected(bad, "v2_stale_haste_zombie_id_rejected_atomically");
+    bad = state; CarnivalSet(bad, layout.haste + 8, 0); rejected(bad, "v2_zero_haste_duration_rejected_atomically");
+    bad = state; CarnivalSet(bad, layout.haste + 8, 251); rejected(bad, "v2_haste_duration_above250_rejected_atomically");
+    bad = state; CarnivalSet(bad, layout.haste + 12, 0); rejected(bad, "v2_zero_haste_percent_rejected_atomically");
+    bad = state; CarnivalSet(bad, layout.haste + 12, 101); rejected(bad, "v2_haste_percent_above100_rejected_atomically");
+    bad = state;
+    const std::vector<uint8_t> duplicate(state.begin() + layout.haste + 4, state.begin() + layout.haste + 16);
+    bad.insert(bad.end(), duplicate.begin(), duplicate.end()); CarnivalSet(bad, layout.haste, CarnivalGet(state, layout.haste) + 1);
+    rejected(bad, "v2_duplicate_haste_record_rejected_without_replacing_live_maps");
+    const char* home = std::getenv("HOME");
+    if (!Check(t, home && *home, "v2_portable_midwindup_disposable_home_fixture")) return false;
+    const std::string path = std::string(home) + "/pvzp-carnival-v2-regression.dat";
+    if (!Check(t, LawnSaveGame(b, path), "v2_full_portable_save_mid_dash_fuse_held_sun_haste_freeze_and_reflection")) return false;
+    PvzpCustomZombies::Reset(b);
+    if (!Check(t, b->LoadGame(path), "v2_full_portable_load_at_end_of_board_update")) return false;
+    garlic = b->mZombies.DataArrayTryToGet(garlicID); cherry = b->mZombies.DataArrayTryToGet(cherryID);
+    magnet = b->mZombies.DataArrayTryToGet(magnetID); vanilla = b->mZombies.DataArrayTryToGet(vanillaID);
+    frozen = b->mPlants.DataArrayTryToGet(frozenID); cherryTarget = b->mPlants.DataArrayTryToGet(targetID);
+    Projectile* pending = b->mProjectiles.DataArrayTryToGet(shotID);
+    if (!Check(t, garlic && cherry && magnet && vanilla && frozen && cherryTarget && pending && !pending->mDead &&
+        PvzpCustomZombies::Save(b) == state && PvzpCustomZombies::PlantFrozen(frozen) && frozen->mPlantHealth == hp &&
+        PvzpCustomZombies::Int(magnet, "sunDrop", 0) == 175 && PvzpCustomZombies::Int(vanilla, "speedPercent", 100) == 150,
+        "v2_full_portable_roundtrip_preserves_real_pending_phases_held_bounty_haste_and_live_shot_exactly")) return false;
+    garlic->mIceTrapCounter = 0;
+    const float beforeX = garlic->mPosX;
+    CompositeTicks(b, 74); frozen->mLaunchCounter = 123; frozen->Update();
+    Check(t, garlic->mRow == 4 && PvzpCustomZombies::PlantFrozen(frozen) && frozen->mLaunchCounter == 123,
+        "v2_loaded75tick_freeze_blocks_real_plant_after74_updates_and_dash_still_waits");
+    CompositeTicks(b, 1); frozen->Update();
+    Check(t, !PvzpCustomZombies::PlantFrozen(frozen) && frozen->mLaunchCounter < 123,
+        "v2_loaded_freeze_expires_exactly75_and_real_plant_timer_resumes");
+    CompositeTicks(b, 5);
+    Check(t, garlic->mRow == 3 && garlic->mPosX == beforeX && CarnivalPhase(b, garlic) == 0,
+        "v2_portable_loaded_dash_finishes_after_exact_remaining80_without_reset_or_x_teleport");
+    const int cherryHP = cherryTarget->mPlantHealth;
+    cherry->mButteredCounter = 0; CompositeTicks(b, 99);
+    Check(t, !cherry->mDead && cherryTarget->mPlantHealth == cherryHP, "v2_portable_pending_cherry_fuse_does_not_restart_or_finish_early");
+    CompositeTicks(b, 1);
+    Check(t, cherry->mDead && cherryTarget->mPlantHealth == cherryHP - 900,
+        "v2_portable_loaded_cherry_fuse_resolves_exactly_once_after100_unpaused_ticks");
+    return true;
+}
+
 bool CompositeProjectileAndSave(CustomTest& t, Board* b) {
     for (const char* id : {"pvzp.firepea_head", "pvzp.melon_head", "pvzp.gatling_head", "pvzp.snowpea_head"}) {
         ClearFixture(b);
@@ -764,6 +1203,7 @@ bool CompositeProjectileAndSave(CustomTest& t, Board* b) {
             target->mPlantHealth == hp && Projectiles(b) == 1,
             "real_frozen_plant_update_suppresses_ability_timer_while_inflight_second_shot_exists");
         const auto state = PvzpCustomZombies::Save(b);
+        Check(t, CarnivalGet(state, 0) == 1, "legacy_composite_without_extended_state_keeps_original_v1_payload_layout");
         PvzpCustomZombies::Reset(b);
         Check(t, !PvzpCustomZombies::PlantFrozen(target) && PvzpCustomZombies::Id(shooter).empty(),
             "composite_reset_removes_actor_and_frozen_maps_without_deleting_engine_entities");
@@ -791,7 +1231,7 @@ bool CompositeProjectileAndSave(CustomTest& t, Board* b) {
         };
         auto bad = state; bad.pop_back(); rejected(bad, "composite_truncated_save_rejected_without_actor_frozen_or_shot_mutation");
         bad = state; bad.push_back(0); rejected(bad, "composite_trailing_save_byte_rejected_without_mutation");
-        bad = state; set32(bad, 0, 2); rejected(bad, "composite_unknown_save_version_rejected_without_mutation");
+        bad = state; set32(bad, 0, 3); rejected(bad, "composite_unknown_save_version_rejected_without_mutation");
         bad = state; set32(bad, 8, 0xFFFFFFFFU); rejected(bad, "composite_stale_actor_id_rejected_without_mutation");
         bad = state; set32(bad, frozenAt + 4, 0xFFFFFFFFU); rejected(bad, "composite_stale_frozen_plant_id_rejected_without_mutation");
         bad = state; set32(bad, frozenAt + 8, 0); rejected(bad, "composite_zero_frozen_duration_rejected_without_mutation");
@@ -1168,7 +1608,8 @@ void PvzpRunCustomRegression(Board* b) {
         b->mHugeWaveCountDown = -1;
         if (!NutArtChecks(t, b) || !PrismPacketChecks(t, b) || !PrismSplitChecks(t, b) ||
             !PrismEmpowerAndSave(t, b) || !LocaleAndAlmanacChecks(t, b) ||
-            !CompositeAbilities(t, b) || !CompositeProjectileAndSave(t, b)) { Finish(t, b); return; }
+            !CompositeAbilities(t, b) || !CarnivalGuardianAndRally(t, b) || !CarnivalWindups(t, b) ||
+            !CarnivalMagnetAndRebound(t, b) || !CarnivalSaveV2(t, b) || !CompositeProjectileAndSave(t, b)) { Finish(t, b); return; }
         t.phase = 6;
         t.phaseTicks = 0;
         return;

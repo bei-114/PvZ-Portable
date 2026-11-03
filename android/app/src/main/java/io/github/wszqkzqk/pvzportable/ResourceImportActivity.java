@@ -309,6 +309,8 @@ public class ResourceImportActivity extends AppCompatActivity {
             try (OutputStream os = getContentResolver().openOutputStream(destUri);
                  java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(os)) {
                 addDirToZip(zos, saveDir, "userdata/");
+                File playerLevels = new File(gameDir, "playerlevels");
+                if (playerLevels.isDirectory()) addDirToZip(zos, playerLevels, "playerlevels/");
                 runOnUiThread(() -> {
                     Toast.makeText(this, R.string.export_success, Toast.LENGTH_SHORT).show();
                     refreshStatus();
@@ -386,8 +388,11 @@ public class ResourceImportActivity extends AppCompatActivity {
                 while ((entry = zis.getNextEntry()) != null) {
                     if (entry.isDirectory()) { zis.closeEntry(); continue; }
                     String name = entry.getName();
-                    if (!name.startsWith("userdata/")) name = "userdata/" + name;
+                    if (!name.startsWith("userdata/") && !name.startsWith("playerlevels/")) name = "userdata/" + name;
                     File outFile = new File(gameDir, name);
+                    File allowedRoot = new File(gameDir, name.startsWith("playerlevels/") ? "playerlevels" : "userdata");
+                    if (!outFile.getCanonicalPath().startsWith(allowedRoot.getCanonicalPath() + File.separator))
+                        throw new IOException("Unsafe save archive path");
                     File parent = outFile.getParentFile();
                     if (parent != null && !parent.exists()) parent.mkdirs();
                     try (OutputStream os = new BufferedOutputStream(new FileOutputStream(outFile), BUFFER_SIZE)) {

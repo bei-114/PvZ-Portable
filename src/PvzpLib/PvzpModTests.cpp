@@ -2,6 +2,7 @@
 // Run with PVZP_MOD_TEST=1 before constructing LawnApp; needs no main.pak/assets.
 #include "PvzpMod.h"
 #include "PvzpCustomPlants.h"
+#include "PvzpPlayerLevels.h"
 #include "../Lawn/Plant.h"
 #include "../Lawn/Zombie.h"
 #include "../Lawn/System/PortableSaveValidation.h"
@@ -10,11 +11,19 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
+
+// Internal, deterministic storage failure hook: absent from the UI/public API.
+namespace PvzpPlayerLevels::ModelTest {
+void FailRename(int countdown);
+bool CanEditState(bool hasBoard,bool hasChooser,int scene);
+}
 
 namespace {
 namespace fs = std::filesystem;
@@ -863,11 +872,11 @@ void CustomZombieAndLevelRegistries(Checks& t, const fs::path& tmp) {
         t.Check(write(std::string(R"("customZombies":[{"id":"choice","name":"Choice","base":")") + base + "\"}]") &&
             PvzpMod::CustomZombies().size() == 1, "custom zombie permitted base accepted without inserting enums");
     }
-    for (const char* head : {"seed_packet", "tombstone", "pea", "snowpea", "firepea", "sunflower", "chomper", "melon", "gatling"}) {
+    for (const char* head : {"seed_packet", "tombstone", "pea", "snowpea", "firepea", "sunflower", "chomper", "melon", "gatling", "pumpkin", "coffee", "garlic", "cherry", "magnet", "tallnut"}) {
         t.Check(write(std::string(R"("customZombies":[{"id":"choice","name":"Choice","head":")") + head + "\"}]") &&
             PvzpMod::CustomZombies().size() == 1, "custom zombie whitelisted composite head accepted");
     }
-    for (const char* ability : {"none", "seed_jam", "raise", "shoot_ice", "shoot_fire", "heal", "bite", "shoot_melon", "shoot_pea"}) {
+    for (const char* ability : {"none", "seed_jam", "raise", "shoot_ice", "shoot_fire", "heal", "bite", "shoot_melon", "shoot_pea", "shield_aura", "rally", "lane_dash", "cherry_charge", "magnet_steal", "rebound"}) {
         t.Check(write(std::string(R"("customZombies":[{"id":"choice","name":"Choice","ability":")") + ability + "\"}]") &&
             PvzpMod::CustomZombies().size() == 1, "custom zombie whitelisted ability accepted");
     }
@@ -1173,6 +1182,366 @@ void PortableSaveValidation(Checks& t) {
         "TLV length arithmetic rejects size_t overflow");
 }
 
+std::string PlayerFileText(const fs::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), {});
+}
+
+void PlayerLevelModel(Checks& t, const fs::path& tmp) {
+    namespace P = PvzpPlayerLevels;
+    t.Check(PvzpMod::LoadFromDirectory(tmp / "player-model-mods"), "player model starts from isolated mod snapshot");
+    t.Check(bool(P::Initialize(tmp / "player-model")) && P::Levels().empty() && P::Diagnostics().empty(),
+        "explicit empty player root creates empty isolated catalog");
+    auto draft = P::NewDraft();
+    t.Check(bool(P::Validate(draft)) && P::IsPlayerId(draft.id) && draft.startingSun == 500 &&
+        draft.waves.size() == 1 && draft.waves[0].spawns[0].zombie == "ZOMBIE",
+        "new draft has generated player ID and valid one-wave 500-sun default");
+    std::set<std::string> ids;
+    for (int i = 0; i < 100; ++i) ids.insert(P::NewDraft().id);
+    t.Check(ids.size() == 100 && !P::CanEdit(nullptr), "generated stable ASCII IDs are unique and null app cannot edit");
+    for (int scene = -1; scene <= 8; ++scene) {
+        t.Check(P::ModelTest::CanEditState(false, false, scene) == (scene == static_cast<int>(GameScenes::SCENE_MENU)) &&
+            !P::ModelTest::CanEditState(true, false, scene) && !P::ModelTest::CanEditState(false, true, scene),
+            "editor guard accepts only main-menu scene with no board or seed chooser");
+    }
+    for (const char* id : {"", "player.", "bundled.id", "player...x", "player../x", "player.a/b", "player.a\\b", "player.a:b", "player.\n"})
+        t.Check(!P::IsPlayerId(id) && !P::Remove(id), "unsafe IDs cannot escape the player namespace");
+    draft.name = "Quoted \"name\" \\ 中文 🌻";
+    draft.description = std::string("line\n\t\r") + char(1) + "\\ \" 🌻";
+    t.Check(bool(P::Save(draft)) && P::Find(draft.id) && P::Levels().size() == 1,
+        "UTF-8 and JSON escaping model saves immediately");
+    const std::string exported = P::ExportJson(draft);
+    t.Check(exported.find("\\u0001") != std::string::npos && exported.find("\\\"") != std::string::npos &&
+        exported.find("\\\\") != std::string::npos && exported.find("\"plants\"") == std::string::npos,
+        "export escapes controls quotes and backslashes without executable/rule sections");
+    t.Check(bool(P::Initialize(P::Directory())) && P::Find(draft.id) &&
+        P::ExportJson(*P::Find(draft.id)) == exported, "strict parse/export roundtrip preserves every level field");
+    auto copy = P::CopyDraft(draft);
+    t.Check(copy.id != draft.id && copy.name.ends_with(" (copy)") && copy.waves[0].spawns[0].zombie == "ZOMBIE",
+        "copy has independent stable ID and retains wave content");
+    auto unicode = draft; unicode.name.clear();
+    for (int i = 0; i < 42; ++i) unicode.name += "花";
+    auto bounded = P::CopyDraft(unicode);
+    t.Check(bounded.name.size() <= 128 && bounded.name.ends_with(" (copy)") && bool(P::Validate(bounded)),
+        "copy suffix truncates only at UTF-8 boundary within byte budget");
+    auto boundary = draft;
+    boundary.id = "player." + std::string(121, 'x'); boundary.name = std::string(128, 'n');
+    boundary.description = std::string(1024, 'd'); boundary.startingSun = 9990;
+    boundary.waves.assign(30, {60000, std::vector<PvzpMod::CustomSpawn>(12, {"ZOMBIE", 4, 1})});
+    t.Check(bool(P::Validate(boundary)), "all model ID text sun wave delay group row upper bounds accepted");
+    boundary.waves = {{1, {{"ZOMBIE", -1, 50}}}}; boundary.startingSun = 0;
+    t.Check(bool(P::Validate(boundary)), "zero sun delay1 random row count50 boundary accepted");
+    const auto invalid = [&](auto mutate) {
+        auto level = draft; mutate(level);
+        const auto before = P::ExportJson(*P::Find(draft.id));
+        const auto revision = PvzpMod::SnapshotRevision();
+        t.Check(!P::Validate(level) && !P::Save(level) &&
+            P::ExportJson(*P::Find(draft.id)) == before && PvzpMod::SnapshotRevision() == revision,
+            "invalid model mutation fails validation/save without publishing partial changes");
+    };
+    invalid([](auto& c) { c.id = "player." + std::string(122, 'x'); });
+    invalid([](auto& c) { c.name = ""; });
+    invalid([](auto& c) { c.name.assign(129, 'n'); });
+    invalid([](auto& c) { c.name = "bad\nname"; });
+    invalid([](auto& c) { c.name = std::string("bad\0name", 8); });
+    invalid([](auto& c) { c.name = std::string("\xc0\xaf", 2); });
+    invalid([](auto& c) { c.description.assign(1025, 'd'); });
+    invalid([](auto& c) { c.description = std::string("\xed\xa0\x80", 3); });
+    invalid([](auto& c) { c.startingSun = -1; });
+    invalid([](auto& c) { c.startingSun = 9991; });
+    invalid([](auto& c) { c.waves.clear(); });
+    invalid([](auto& c) { c.waves.assign(31, c.waves.front()); });
+    invalid([](auto& c) { c.waves[0].delay = 0; });
+    invalid([](auto& c) { c.waves[0].delay = 60001; });
+    invalid([](auto& c) { c.waves[0].spawns.clear(); });
+    invalid([](auto& c) { c.waves[0].spawns.assign(13, {"ZOMBIE", -1, 1}); });
+    invalid([](auto& c) { c.waves[0].spawns[0].row = -2; });
+    invalid([](auto& c) { c.waves[0].spawns[0].row = 5; });
+    invalid([](auto& c) { c.waves[0].spawns[0].count = 0; });
+    invalid([](auto& c) { c.waves[0].spawns[0].count = 51; });
+    invalid([](auto& c) { c.waves[0].spawns = {{"ZOMBIE", 0, 30}, {"ZOMBIE", 1, 21}}; });
+    invalid([](auto& c) { c.waves[0].spawns[0].zombie = "missing.reference"; });
+    invalid([](auto& c) { c.waves[0].spawns[0].zombie = "BOSS"; });
+}
+
+void PlayerLevelStrictFiles(Checks& t, const fs::path& tmp) {
+    namespace P = PvzpPlayerLevels;
+    PvzpMod::LoadFromDirectory(tmp / "player-files-mods");
+    const auto root = tmp / "player-files";
+    auto good = P::NewDraft(); good.id = "player.good";
+    const std::string json = P::ExportJson(good);
+    const std::vector<std::string> bad = {
+        "{}", "[]", json + " trailing", "{\"schemaVersion\":2,\"customLevels\":[]}",
+        "{\"schemaVersion\":1,\"customLevels\":[]}",
+        "{\"schemaVersion\":2,\"schemaVersion\":2,\"customLevels\":[]}",
+        "{\"schemaVersion\":2,\"customLevels\":[],\"scripts\":[]}",
+        "{\"schemaVersion\":2,\"customLevels\":[],\"plants\":{}}",
+        "{\"schemaVersion\":2,\"customLevels\":[],\"zombies\":{}}",
+        "{\"schemaVersion\":2,\"customLevels\":[],\"globals\":{}}",
+        "{\"schemaVersion\":2,\"customLevels\":[],\"customZombies\":[]}",
+        "{\"schemaVersion\":2,\"customLevels\":[],\"customPlants\":[]}",
+        "{\"schemaVersion\":2,\"customLevels\":[],\"enabled\":true}",
+        "{\"schemaVersion\":2,\"customLevels\":[],\"priority\":1}",
+        std::string(65537, ' '), std::string("\xff", 1)
+    };
+    for (size_t i = 0; i < bad.size(); ++i) {
+        const auto caseRoot = root / std::to_string(i);
+        Write(caseRoot / (good.id + ".json"), json);
+        Write(caseRoot / "player.invalid.json", bad[i]);
+        t.Check(bool(P::Initialize(caseRoot)) && P::Levels().size() == 1 && P::Find(good.id) &&
+            !P::Diagnostics().empty() && fs::exists(caseRoot / "player.invalid.json"),
+            "invalid player envelope/JSON/size retained with diagnostic without wiping valid sibling");
+    }
+    for (const auto& replacement : std::vector<std::pair<std::string, std::string>>{
+        {"\"startingSun\":500", "\"startingSun\":1.5"},
+        {"\"startingSun\":500", "\"startingSun\":1e-10000"},
+        {"\"startingSun\":500", "\"startingSun\":\"500\""},
+        {"\"startingSun\":500", "\"startingSun\":500,\"startingSun\":501"},
+        {"\"delay\":800", "\"delay\":0"},
+        {"\"row\":-1", "\"row\":5"},
+        {"\"count\":1", "\"count\":51"},
+        {"\"name\":\"New level\"", "\"name\":\"\\uD800\""},
+        {"\"name\":\"New level\"", "\"name\":\"\\u0000\""},
+        {"\"count\":1", "\"count\":1,\"script\":\"bad\""}
+    }) {
+        auto text = json; const auto at = text.find(replacement.first);
+        if (at == std::string::npos) throw std::runtime_error("bad player parser test mutation");
+        text.replace(at, replacement.first.size(), replacement.second);
+        const auto caseRoot = root / "mutated";
+        Write(caseRoot / (good.id + ".json"), text);
+        t.Check(bool(P::Initialize(caseRoot)) && P::Levels().empty() && !P::Diagnostics().empty(),
+            "strict player parser rejects invalid field types ranges duplicate keys escapes and unknown fields");
+    }
+    std::vector<PvzpMod::CustomLevel> invalidModels;
+    auto oversized = good; oversized.waves.assign(31, good.waves.front()); invalidModels.push_back(oversized);
+    oversized = good; oversized.waves[0].spawns.assign(13, {"ZOMBIE", -1, 1}); invalidModels.push_back(oversized);
+    oversized = good; oversized.waves[0].spawns = {{"ZOMBIE", -1, 25}, {"ZOMBIE", 0, 26}}; invalidModels.push_back(oversized);
+    oversized = good; oversized.id = "player.../escape"; invalidModels.push_back(oversized);
+    for (const auto& model : invalidModels) {
+        const auto caseRoot = root / "structural-limits";
+        Write(caseRoot / "player.good.json", P::ExportJson(model));
+        t.Check(bool(P::Initialize(caseRoot)) && P::Levels().empty() && !P::Diagnostics().empty(),
+            "structural file parse enforces editor wave/group/total/path limits independently of Save");
+    }
+    auto doubled = json;
+    const auto lastEntry = doubled.rfind("]}");
+    const auto firstEntry = doubled.find("[{" );
+    std::string entry = doubled.substr(firstEntry + 1, lastEntry - firstEntry - 1);
+    entry.replace(entry.find(good.id), good.id.size(), "player.second");
+    doubled.insert(lastEntry, "," + entry);
+    Write(root / "two-levels" / "player.good.json", doubled);
+    t.Check(bool(P::Initialize(root / "two-levels")) && P::Levels().empty() && !P::Diagnostics().empty(),
+        "single player file cannot contain two customLevels even when individually valid");
+    const auto exactRoot = root / "exact64";
+    auto padded = json; padded.resize(65536, ' '); Write(exactRoot / (good.id + ".json"), padded);
+    t.Check(bool(P::Initialize(exactRoot)) && P::Levels().size() == 1,
+        "player file accepts exact 64 KiB boundary");
+    const auto duplicateRoot = root / "duplicates";
+    Write(duplicateRoot / (good.id + ".json"), json);
+    Write(duplicateRoot / "player.alias.json", json);
+    t.Check(bool(P::Initialize(duplicateRoot)) && P::Levels().size() == 1 && !P::Diagnostics().empty() &&
+        fs::exists(duplicateRoot / "player.alias.json"), "filename mismatch/duplicate identity rejected and retained");
+    auto missing = good; missing.id = "player.missing"; missing.waves[0].spawns[0].zombie = "org.test.absent";
+    Write(duplicateRoot / (missing.id + ".json"), P::ExportJson(missing));
+    t.Check(bool(P::Initialize(duplicateRoot)) && P::Find(missing.id) && bool(P::Validate(missing, false)) &&
+        !P::Validate(missing, true) && !P::Save(missing), "missing dependency structurally loads for repair but cannot play/save");
+    missing.waves[0].spawns[0].zombie = "ZOMBIE";
+    t.Check(bool(P::Save(missing)) && bool(P::Validate(*P::Find(missing.id))), "repair resolves missing dependency and saves immediately");
+    const auto capRoot = root / "cap";
+    for (int i = 0; i < 33; ++i) {
+        auto level = good; level.id = "player.cap" + std::to_string(100 + i);
+        Write(capRoot / (level.id + ".json"), P::ExportJson(level));
+    }
+    t.Check(bool(P::Initialize(capRoot)) && P::Levels().size() == 32 && !P::Diagnostics().empty() &&
+        fs::exists(capRoot / "player.cap132.json"), "33rd valid player file retained with explicit max32 diagnostic");
+    auto extra = good; extra.id = "player.extra";
+    const auto revision = PvzpMod::SnapshotRevision();
+    t.Check(!P::Save(extra) && P::Levels().size() == 32 && !fs::exists(capRoot / "player.extra.json") &&
+        PvzpMod::SnapshotRevision() == revision, "save at catalog capacity cannot write or publish partial content");
+    t.Check(bool(P::Initialize(root / "empty")) && P::Levels().empty() && PvzpMod::CustomLevels().empty() &&
+        P::Diagnostics().empty(), "reload empty player root clears old publication and stale diagnostics");
+}
+
+void PlayerLevelTransactionsAndPaths(Checks& t, const fs::path& tmp) {
+    namespace P = PvzpPlayerLevels;
+    PvzpMod::LoadFromDirectory(tmp / "player-atomic-mods");
+    const auto root = tmp / "player-atomic";
+    t.Check(bool(P::Initialize(root)), "atomic player tests initialize explicit scratch root");
+    auto level = P::NewDraft(); level.id = "player.atomic";
+    t.Check(bool(P::Save(level)), "atomic baseline saves");
+    const auto target = root / (level.id + ".json");
+    const auto temp = root / (level.id + ".json.tmp");
+    const auto backup = root / (level.id + ".json.bak");
+    const auto original = PlayerFileText(target);
+    level.name = "Changed";
+    for (const auto& obstacle : {temp, backup}) {
+        fs::create_directory(obstacle);
+        const auto revision = PvzpMod::SnapshotRevision();
+        t.Check(!P::Save(level) && PlayerFileText(target) == original && P::Find(level.id)->name != level.name &&
+            PvzpMod::SnapshotRevision() == revision, "temporary/backup obstruction leaves file model catalog and revision untouched");
+        if (obstacle == backup)
+            t.Check(!P::Remove(level.id) && fs::exists(target), "blocked removal leaves original target present");
+        fs::remove(obstacle);
+    }
+    for (int failureAt : {1, 2}) {
+        const auto revision = PvzpMod::SnapshotRevision();
+        P::ModelTest::FailRename(failureAt);
+        t.Check(!P::Save(level) && PlayerFileText(target) == original && !fs::exists(temp) && !fs::exists(backup) &&
+            P::Find(level.id)->name != level.name && PvzpMod::SnapshotRevision() == revision,
+            "failure before/after backup rename rolls back original file and leaves catalog revision untouched");
+    }
+    auto newLevel = level; newLevel.id = "player.newfailure";
+    const auto newRevision = PvzpMod::SnapshotRevision();
+    P::ModelTest::FailRename(1);
+    t.Check(!P::Save(newLevel) && !P::Find(newLevel.id) && !fs::exists(root / "player.newfailure.json") &&
+        !fs::exists(root / "player.newfailure.json.tmp") && PvzpMod::SnapshotRevision() == newRevision,
+        "failed new-file commit leaves neither disk artifacts nor catalog publication");
+    P::ModelTest::FailRename(1);
+    t.Check(!P::Remove(level.id) && PlayerFileText(target) == original && P::Find(level.id),
+        "injected remove rename failure preserves disk and published model");
+    Write(temp, "foreign transaction");
+    t.Check(!P::Save(level) && PlayerFileText(temp) == "foreign transaction" && PlayerFileText(target) == original,
+        "preexisting transaction file is never truncated or removed");
+    fs::remove(temp);
+    t.Check(bool(P::Save(level)) && P::Find(level.id)->name == "Changed" && !fs::exists(temp) && !fs::exists(backup),
+        "successful replacement publishes new model and cleans transaction artifacts");
+    auto unowned = level; unowned.id = "player.unowned";
+    Write(root / "player.unowned.json", "invalid file retained");
+    t.Check(!P::Save(unowned) && PlayerFileText(root / "player.unowned.json") == "invalid file retained",
+        "save cannot overwrite invalid unowned file by guessed player ID");
+    const auto revision = PvzpMod::SnapshotRevision();
+    t.Check(!P::Initialize(root / ".." / "escape") && P::Directory() == fs::absolute(root) &&
+        PvzpMod::SnapshotRevision() == revision && !P::Remove("player.../escape"),
+        "root traversal and ID traversal fail without switching published catalog");
+    const auto outside = tmp / "player-outside";
+    fs::create_directories(outside); Write(outside / "sentinel", "untouched");
+    std::error_code ec;
+    fs::create_directory_symlink(outside, tmp / "player-linked-root", ec);
+    if (!ec) {
+        t.Check(!P::Initialize(tmp / "player-linked-root") && !P::Initialize(tmp / "player-linked-root" / "nested") &&
+            P::Directory() == fs::absolute(root), "direct and ancestor symlink player roots refused");
+    }
+    ec.clear(); fs::create_symlink(outside / "sentinel", root / "player.link.json", ec);
+    if (!ec) {
+        t.Check(bool(P::Initialize(root)) && !P::Find("player.link") && !P::Diagnostics().empty() &&
+            PlayerFileText(outside / "sentinel") == "untouched", "symlink JSON diagnosed without following or modifying target");
+        auto linked = level; linked.id = "player.link";
+        t.Check(!P::Save(linked) && PlayerFileText(outside / "sentinel") == "untouched", "save refuses symlink target");
+    }
+    ec.clear(); fs::create_symlink(outside / "sentinel", temp, ec);
+    if (!ec) {
+        t.Check(!P::Save(level) && PlayerFileText(outside / "sentinel") == "untouched", "save refuses symlink temporary file");
+        fs::remove(temp);
+    }
+    ec.clear(); fs::create_symlink(outside / "sentinel", backup, ec);
+    if (!ec) {
+        t.Check(!P::Save(level) && !P::Remove(level.id) && PlayerFileText(outside / "sentinel") == "untouched",
+            "save/remove refuse symlink backup without touching external file");
+        fs::remove(backup);
+    }
+    // Replace a previously loaded own target to exercise write-time, not only scan-time, validation.
+    fs::remove(target); ec.clear(); fs::create_symlink(outside / "sentinel", target, ec);
+    if (!ec) {
+        t.Check(!P::Save(level) && !P::Remove(level.id) && PlayerFileText(outside / "sentinel") == "untouched",
+            "post-load symlink substitution cannot redirect Save or Remove");
+        fs::remove(target); Write(target, P::ExportJson(level));
+    } else Write(target, P::ExportJson(level));
+    t.Check(bool(P::Remove(level.id)) && !P::Find(level.id) && !fs::exists(target) && !fs::exists(backup) &&
+        !P::Remove(level.id), "remove deletes only own ID file and immediately removes catalog entry");
+    t.Check(fs::exists(root / "player.unowned.json") && PlayerFileText(outside / "sentinel") == "untouched",
+        "invalid neighboring files and external sentinel survive all transactions");
+}
+
+void PlayerPublicationAndFingerprints(Checks& t, const fs::path& tmp) {
+    namespace P = PvzpPlayerLevels;
+    const auto mods = tmp / "player-fingerprints-mods";
+    const auto manifest = mods / "pack" / "mod.json";
+    const std::string baseline = R"({"schemaVersion":2,"id":"org.test.playerfp","priority":7,"plants":{"PEASHOOTER":{"cost":321}},"zombies":{"ZOMBIE":{"pickWeight":5432}},"globals":{"startingSun":150},"customPlants":[{"slot":0,"name":"Cache","cost":432}],"customZombies":[{"id":"org.test.actor","name":"Actor"}],"customLevels":[{"id":"org.test.bundled","name":"Bundled","waves":[{"spawns":[{"zombie":"ZOMBIE"}]}]}]})";
+    Write(manifest, baseline);
+    t.Check(PvzpMod::LoadFromDirectory(mods) && bool(P::Initialize(tmp / "player-fingerprints")),
+        "player fingerprint tests isolate both content roots");
+    const auto rules = PvzpMod::RulesFingerprint(); const auto gameplay = PvzpMod::GameplayFingerprint();
+    const auto revision = PvzpMod::SnapshotRevision();
+    const int cost = GetPlantDefinition(SEED_PEASHOOTER).mSeedCost;
+    const int customCost = GetPlantDefinition(SEED_CUSTOM_0).mSeedCost;
+    const int weight = GetZombieDefinition(ZOMBIE_NORMAL).mPickWeight;
+    auto level = P::NewDraft(); level.waves[0].spawns[0].zombie = "org.test.actor";
+    t.Check(bool(P::Save(level)) && PvzpMod::CustomLevels().size() == 2 &&
+        PvzpMod::CustomLevels()[0].id == "org.test.bundled" && PvzpMod::SnapshotRevision() > revision &&
+        PvzpMod::RulesFingerprint() == rules && PvzpMod::GameplayFingerprint() == gameplay,
+        "player publication merges after bundled catalog changes only snapshot revision not either fingerprint");
+    level.waves[0].delay += 1; level.name = "Unrelated editor change";
+    t.Check(bool(P::Save(level)) && PvzpMod::RulesFingerprint() == rules && PvzpMod::GameplayFingerprint() == gameplay &&
+        GetPlantDefinition(SEED_PEASHOOTER).mSeedCost == cost && GetPlantDefinition(SEED_CUSTOM_0).mSeedCost == customCost &&
+        GetZombieDefinition(ZOMBIE_NORMAL).mPickWeight == weight && PvzpMod::GlobalInt("startingSun", 0) == 150,
+        "player edits cannot alter effective entity/global rules or derived definition cache values");
+    const auto failedRevision = PvzpMod::SnapshotRevision();
+    auto foreign = level; foreign.id = "org.test.bundled";
+    t.Check(!PvzpMod::PublishPlayerLevels({foreign}) && !PvzpMod::PublishPlayerLevels({level, level}) &&
+        PvzpMod::SnapshotRevision() == failedRevision && PvzpMod::CustomLevels().size() == 2,
+        "publication rejects nonplayer overrides and duplicate player IDs atomically");
+    t.Check(PvzpMod::SetEnabled("org.test.playerfp", false) && PvzpMod::CustomLevels().size() == 1 &&
+        PvzpMod::CustomLevels()[0].id == level.id && PvzpMod::SetEnabled("org.test.playerfp", true) &&
+        PvzpMod::RulesFingerprint() == rules && PvzpMod::GameplayFingerprint() == gameplay,
+        "bundled toggles rebuild rules without discarding independent player publication");
+    t.Check(PvzpMod::LoadFromDirectory(mods) && PvzpMod::CustomLevels().size() == 1 &&
+        PvzpMod::CustomLevels()[0].id == "org.test.bundled", "tool mod reload resets player publication without reading player filesystem");
+    auto changed = baseline;
+    auto at = changed.find("\"name\":\"Bundled\""); changed.replace(at, std::string("\"name\":\"Bundled\"").size(), "\"name\":\"Renamed\"");
+    Write(manifest, changed);
+    t.Check(PvzpMod::LoadFromDirectory(mods) && PvzpMod::RulesFingerprint() != rules && PvzpMod::GameplayFingerprint() == gameplay,
+        "bundled level metadata remains in unchanged legacy v7 hash but excluded from gameplay hash");
+    for (const auto& field : std::vector<std::pair<std::string, std::string>>{
+        {"\"cost\":321", "\"cost\":322"}, {"\"pickWeight\":5432", "\"pickWeight\":5433"},
+        {"\"startingSun\":150", "\"startingSun\":151"}, {"\"cost\":432", "\"cost\":433"},
+        {"\"name\":\"Actor\"", "\"name\":\"Actor2\""}, {"\"priority\":7", "\"priority\":8"},
+        {"org.test.playerfp", "org.test.playerfp2"}
+    }) {
+        changed = baseline; at = changed.find(field.first); changed.replace(at, field.first.size(), field.second);
+        Write(manifest, changed);
+        t.Check(PvzpMod::LoadFromDirectory(mods) && PvzpMod::GameplayFingerprint() != gameplay,
+            "gameplay hash includes effective normal/custom plant zombie global definitions and enabled priority metadata");
+    }
+    auto collision = P::NewDraft(); collision.id = "player.bundledcollision";
+    // Use the exact exported envelope as a bundled pack: manifest accepts schema2/customLevels.
+    Write(manifest, P::ExportJson(collision));
+    t.Check(PvzpMod::LoadFromDirectory(mods) && bool(P::Initialize(tmp / "player-collision")) && !P::Save(collision) &&
+        !fs::exists(P::Directory() / (collision.id + ".json")), "even a bundled player-namespace ID cannot be overridden by editor storage");
+    Write(P::Directory() / (collision.id + ".json"), P::ExportJson(collision));
+    auto safe = collision; safe.id = "player.safe";
+    Write(P::Directory() / (safe.id + ".json"), P::ExportJson(safe));
+    t.Check(bool(P::Initialize(P::Directory())) && P::Levels().size() == 1 && P::Find(safe.id) &&
+        !P::Diagnostics().empty() && fs::exists(P::Directory() / (collision.id + ".json")),
+        "bundled-ID collision file retained with diagnostic without wiping valid player siblings");
+}
+
+void PlayerModelMutationSequence(Checks& t, const fs::path& tmp) {
+    namespace P = PvzpPlayerLevels;
+    PvzpMod::LoadFromDirectory(tmp / "player-sequence-mods");
+    const auto root = tmp / "player-sequence";
+    t.Check(bool(P::Initialize(root)), "model mutation sequence initializes isolated storage");
+    std::map<std::string, std::string> expected;
+    bool valid = true;
+    for (int step = 0; step < 80 && valid; ++step) {
+        if (step % 5 == 0 && !expected.empty()) {
+            const auto id = expected.begin()->first;
+            valid = bool(P::Remove(id)); expected.erase(id);
+        } else {
+            PvzpMod::CustomLevel level;
+            if (step % 3 == 0 && !P::Levels().empty()) level = *P::Find(expected.rbegin()->first);
+            else if (step % 3 == 1 && !P::Levels().empty()) level = P::CopyDraft(P::Levels().front());
+            else level = P::NewDraft();
+            level.name = "Mutation " + std::to_string(step);
+            level.waves[0].delay = 1 + step; level.waves[0].spawns[0].count = 1 + step % 50;
+            valid = bool(P::Save(level)); if (valid) expected[level.id] = P::ExportJson(level);
+        }
+        if (step % 4 == 0) valid = valid && bool(P::Initialize(root));
+        valid = valid && P::Levels().size() == expected.size() && PvzpMod::CustomLevels().size() == expected.size();
+        for (const auto& [id, json] : expected) valid = valid && P::Find(id) && P::ExportJson(*P::Find(id)) == json;
+        t.Check(valid, "deterministic save copy edit remove reload model mutation sequence matches reference map");
+    }
+}
+
 void PathsAndMissing(Checks& t, const fs::path& tmp) {
     const fs::path absent = tmp / "no-such-mods";
     (void)PvzpMod::LoadFromDirectory(absent); // Missing directory is allowed, regardless of scan status.
@@ -1234,6 +1603,11 @@ int PvzpModRunTests() {
         CustomRegistryFingerprints(t, scratch.dir);
         PortableSaveValidation(t);
         PathsAndMissing(t, scratch.dir);
+        PlayerLevelModel(t, scratch.dir);
+        PlayerLevelStrictFiles(t, scratch.dir);
+        PlayerLevelTransactionsAndPaths(t, scratch.dir);
+        PlayerPublicationAndFingerprints(t, scratch.dir);
+        PlayerModelMutationSequence(t, scratch.dir);
     } catch (const std::exception& error) {
         t.Check(false, error.what());
     }

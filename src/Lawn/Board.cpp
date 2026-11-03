@@ -46,6 +46,7 @@
 #include "../PvzpLib/PvzpCustomPlants.h"
 #include "../PvzpLib/PvzpCustomLevels.h"
 #include "../PvzpLib/PvzpLevelRegression.h"
+#include "../PvzpLib/PvzpEditorRegression.h"
 #include "../PvzpLib/PvzpCustomZombies.h"
 #include "../PvzpLib/PvzpFoley.h"
 #include "Widget/SeedChooserScreen.h"
@@ -5925,6 +5926,9 @@ void Board::Update()
 	UpdateLevelEndSequence();
 	mPrevMouseX = mApp->mWidgetManager->mLastMouseX;
 	mPrevMouseY = mApp->mWidgetManager->mLastMouseY;
+#if defined(__linux__) && !defined(__ANDROID__)
+	PvzpRunEditorBoardRegression(this); // mutually exclusive with CUSTOM/LEVEL tests
+#endif
 #ifndef __ANDROID__
 	PvzpRunCustomRegression(this);
 #endif

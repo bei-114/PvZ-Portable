@@ -58,7 +58,7 @@ bool Valid(const PvzpMod::CustomLevel& level)
     return true;
 }
 
-uint64_t Fingerprint(const PvzpMod::CustomLevel& level)
+uint64_t Fingerprint(const PvzpMod::CustomLevel& level,bool legacy=false)
 {
     // Include separators/lengths so different spawn grouping cannot alias by
     // concatenation. No pointers or catalog indices survive a snapshot.
@@ -68,7 +68,7 @@ uint64_t Fingerprint(const PvzpMod::CustomLevel& level)
         for (unsigned char c : value) { hash ^= c; hash *= 1099511628211ULL; }
         hash ^= 255; hash *= 1099511628211ULL;
     };
-    add(std::to_string(PvzpMod::RulesFingerprint()));
+    add(std::to_string(legacy?PvzpMod::RulesFingerprint():PvzpMod::GameplayFingerprint()));
     add(level.id); add(std::to_string(level.startingSun));
     add(std::to_string(level.waves.size()));
     for (const auto& wave : level.waves)
@@ -160,6 +160,7 @@ bool Start(LawnApp* app, std::string_view id)
     const auto* level = Find(id);
     if (!app || !app->mPlayerInfo || !level || !Valid(*level)) return false;
     gSelectedId = level->id;
+    app->RegistryWriteString("CustomLevelSelected",gSelectedId);
     app->KillGameSelector();
     app->PreNewGame(GameMode::GAMEMODE_MOD_LEVEL, false);
     return true;
@@ -317,7 +318,7 @@ std::string SavePayload(const Board* board)
     const State& s = it->second.state;
     if (s.phase == Phase::Error) return {}; // never overwrite a good checkpoint with a broken catalog/spawn
     std::ostringstream out;
-    out << "PVZP_LEVEL 1 " << std::quoted(s.levelId) << ' ' << it->second.fingerprint << ' '
+    out << "PVZP_LEVEL 2 " << std::quoted(s.levelId) << ' ' << it->second.fingerprint << ' '
         << static_cast<int>(s.phase) << ' ' << s.nextWave << ' ' << s.countdown << ' ' << s.spawned << ' ' << s.ticks;
     return out.str();
 }
@@ -326,7 +327,6 @@ bool StageLoadPayload(Board* board, std::string_view payload)
 {
     if (!IsActive(board) || payload.empty() || payload.size() > 1024) return false;
     auto& director = gDirectors[board];
-    director.hasPending = false;
     State state;
     uint64_t fingerprint = 0;
     std::string magic;
@@ -336,8 +336,8 @@ bool StageLoadPayload(Board* board, std::string_view payload)
           state.countdown >> state.spawned >> state.ticks)) return false;
     in >> std::ws;
     const auto* level = Find(state.levelId);
-    if (!in.eof() || magic != "PVZP_LEVEL" || version != 1 || !level || !Valid(*level) ||
-        fingerprint != Fingerprint(*level) || phase < 0 || phase > static_cast<int>(Phase::Error) ||
+    if (!in.eof() || magic != "PVZP_LEVEL" || (version != 1 && version != 2) || !level || !Valid(*level) ||
+        fingerprint != Fingerprint(*level,version==1) || phase < 0 || phase > static_cast<int>(Phase::Error) ||
         state.nextWave < 0 || state.nextWave > static_cast<int>(level->waves.size()) ||
         state.countdown < 0 || state.countdown > 60000 || state.spawned < 0 || state.spawned > 5000 ||
         state.ticks > 1000000000ULL) return false;
@@ -352,7 +352,7 @@ bool StageLoadPayload(Board* board, std::string_view payload)
         (state.nextWave < state.totalWaves && (state.countdown < 1 || state.countdown > level->waves[state.nextWave].delay)) ||
         (state.phase == Phase::WaitingForSeeds && (state.nextWave != 0 || state.ticks != 0 || state.countdown != level->waves.front().delay)) ||
         (state.phase == Phase::Won && state.nextWave != state.totalWaves)) return false;
-    director.fingerprint = fingerprint;
+    director.fingerprint = Fingerprint(*level); // migrate valid v1 checkpoints to v2 identity
     director.revision = PvzpMod::SnapshotRevision();
     director.pending = state;
     director.hasPending = true;

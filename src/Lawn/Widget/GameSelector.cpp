@@ -41,6 +41,7 @@
 #include "../../PvzpLib/PvzpCommon.h"
 #include "../../PvzpLib/PvzpLocale.h"
 #include "../../PvzpLib/PvzpCustomLevels.h"
+#include "../../PvzpLib/PvzpEditorRegression.h"
 #include "graphics/Font.h"
 #include "../../PvzpLib/Reanimator.h"
 #include "../../PvzpLib/PvzpParticle.h"
@@ -1095,6 +1096,9 @@ void GameSelector::Update()
 		mSelectorState != SelectorAnimState::SELECTOR_IDLE || !mApp->mPlayerInfo);
 	aSelectorReanim->SetImageOverride("woodsign2", (mChangeUserButton->mIsOver || mChangeUserButton->mIsDown) ? Sexy::IMAGE_REANIM_SELECTORSCREEN_WOODSIGN2_PRESS : nullptr);
 	aSelectorReanim->SetImageOverride("woodsign3", (mZombatarButton->mIsOver || mZombatarButton->mIsDown) ? Sexy::IMAGE_REANIM_SELECTORSCREEN_WOODSIGN3_PRESS : nullptr);
+#if defined(__linux__) && !defined(__ANDROID__)
+	PvzpRunEditorMenuRegression(mApp); // last: Save & Play may queue this selector for deletion
+#endif
 }
 
 void GameSelector::TrackButton(DialogButton* theButton, const char* theTrackName, float theOffsetX, float theOffsetY)

@@ -1,0 +1,15 @@
+{
+  "schemaVersion":2,
+  "id":"org.pvzp.example.carnival-zombies",
+  "name":"Counterplay Carnival",
+  "priority":130,
+  "enabled":true,
+  "customZombies":[
+    {"id":"pvzp.pumpkin_guard","name":"Pumpkin Bodyguard","head":"pumpkin","ability":"shield_aura","health":1800,"armor":3200,"speedPercent":85,"interval":600,"magnitude":40,"sunDrop":200,"tintR":255,"tintG":185,"tintB":105},
+    {"id":"pvzp.espresso_commander","name":"Espresso Commander","head":"coffee","ability":"rally","health":1700,"armor":800,"speedPercent":95,"interval":500,"magnitude":50,"sunDrop":175,"tintR":220,"tintG":170,"tintB":130},
+    {"id":"pvzp.garlic_hopper","name":"Garlic Side-Stepper","head":"garlic","ability":"lane_dash","health":1800,"armor":600,"speedPercent":110,"interval":400,"magnitude":1,"sunDrop":150,"tintR":235,"tintG":235,"tintB":185},
+    {"id":"pvzp.cherry_courier","name":"Cherry Courier","head":"cherry","ability":"cherry_charge","health":1000,"armor":200,"speedPercent":125,"interval":50,"magnitude":900,"sunDrop":150,"tintR":255,"tintG":135,"tintB":135},
+    {"id":"pvzp.magnet_pickpocket","name":"Sunshine Pickpocket","head":"magnet","ability":"magnet_steal","health":1400,"armor":600,"speedPercent":100,"interval":350,"magnitude":75,"sunDrop":100,"tintR":205,"tintG":165,"tintB":245},
+    {"id":"pvzp.spring_tallnut","name":"Rebound Tall-nut","head":"tallnut","ability":"rebound","health":1200,"armor":1800,"speedPercent":85,"interval":80,"magnitude":35,"sunDrop":175,"tintR":180,"tintG":205,"tintB":255}
+  ]
+}

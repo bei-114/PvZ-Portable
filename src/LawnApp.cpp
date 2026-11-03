@@ -27,8 +27,10 @@
 #include <cstdlib>
 #include "Resources.h"
 #include "PvzpLib/PvzpMod.h"
+#include "PvzpLib/PvzpPlayerLevels.h"
 #include "PvzpLib/PvzpCustomLevels.h"
 #include "PvzpLib/PvzpLevelRegression.h"
+#include "PvzpLib/PvzpEditorRegression.h"
 #include "PvzpLib/PvzpCustomPlants.h"
 #include "PvzpLib/PvzpLocale.h"
 #include "PvzpLib/PvzpFontFallback.h"
@@ -1204,6 +1206,7 @@ void LawnApp::Init()
 
 	Sexy::MkDir(Sexy::GetAppDataPath("userdata"));
 	PvzpMod::Init();
+	PvzpPlayerLevels::Initialize();
 #ifdef PVZ_DEBUG
 	Sexy::RegisterLogFileSink(Sexy::GetAppDataPath("userdata/") + "log.txt");
 	PvzpLogLn("Started {}", static_cast<uint64_t>(std::time(nullptr)));
@@ -1239,13 +1242,14 @@ void LawnApp::Init()
 #if defined(__linux__) && !defined(__ANDROID__)
 	// Live regression owns a disposable HOME. Auto-create only its test profile;
 	// this path is opt-in and is not compiled into the Android application.
-	if (std::getenv("PVZP_LEVEL_TEST") && std::getenv("PVZP_CUSTOM_TEST"))
+	if ((std::getenv("PVZP_LEVEL_TEST") && std::getenv("PVZP_CUSTOM_TEST")) ||
+		(std::getenv("PVZP_EDITOR_TEST") && (std::getenv("PVZP_LEVEL_TEST") || std::getenv("PVZP_CUSTOM_TEST"))))
 	{
-		PvzpLogLn("LTEST FAIL: PVZP_LEVEL_TEST and PVZP_CUSTOM_TEST must not run concurrently");
+		PvzpLogLn("TEST FAIL: PVZP_EDITOR_TEST, PVZP_LEVEL_TEST and PVZP_CUSTOM_TEST must not run concurrently");
 		Shutdown();
 		std::exit(2);
 	}
-	if (PvzpLevelRegressionEnabled() && !mPlayerInfo)
+	if ((PvzpLevelRegressionEnabled() || PvzpEditorRegressionEnabled()) && !mPlayerInfo)
 		mPlayerInfo = mProfileMgr->AddProfile("Regression"); // no unlock/purchase writes
 	if (std::getenv("PVZP_CUSTOM_TEST"))
 	{
@@ -1277,7 +1281,7 @@ void LawnApp::Init()
 
 	mTitleScreen = std::make_unique<TitleScreen>(this);
 #if defined(__linux__) && !defined(__ANDROID__)
-	if (PvzpLevelRegressionEnabled()) mTitleScreen->mQuickLoadKey = static_cast<KeyCode>(0x4D);
+	if (PvzpLevelRegressionEnabled() || PvzpEditorRegressionEnabled()) mTitleScreen->mQuickLoadKey = static_cast<KeyCode>(0x4D);
 #endif
 	mTitleScreen->Resize(0, 0, mWidth, mHeight);
 	mWidgetManager->AddWidget(mTitleScreen.get());
